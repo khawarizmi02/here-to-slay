@@ -1,6 +1,6 @@
 # Here to Slay Digital — Technical Design Document
 
-**Version:** 1.0 · **Date:** 31 Oct 2026 · **Status:** Personal, non-commercial project
+**Version:** 1.1 · **Date:** 31 Oct 2026 · **Status:** Personal, non-commercial project
 
 ---
 
@@ -15,29 +15,32 @@ This document is the single source of truth for building a digital version of th
 5. **Write tests alongside code** (Section 13). Every effect primitive and every phase transition needs a unit test.
 6. When a rule is ambiguous, **do not guess silently**. Implement the default, add it to Section 15's list, and leave a `// RULE-CHECK:` comment in the code.
 7. Card names, art, and exact card text come from the owner's physical copy. Use the placeholder cards in Section 5.6 until real card data is added to `/packages/cards/data/`.
+8. Use the vocabulary in `GLOSSARY.md` (Room, Host, Room Code, Seat). Architectural decisions are recorded in `docs/adr/`; read them before changing the multiplayer design.
 
 ---
 
 ## 1. Project Overview
 
 ### 1.1 Goal
-A playable digital implementation of the *Here to Slay* base game for 2–6 players. It supports hot-seat play, online play with friends, and AI opponents.
+A playable digital implementation of the *Here to Slay* base game for 2–6 players. It supports hot-seat play, online play with friends, and AI opponents, mixed freely in one Room.
 
 ### 1.2 Scope (v1)
 - Base game only: 6 classes (Bard, Fighter, Guardian, Ranger, Thief, Wizard).
 - All card types: Party Leader, Hero, Item (including Cursed and Mask items), Magic, Modifier, Challenge, Monster.
-- Local hot-seat, online private rooms, and AI bots.
+- Local hot-seat, online private Rooms, and AI bots. One Room can mix local, remote, and bot Seats.
 - Desktop browser first, with a responsive layout that works acceptably on tablets.
 
 ### 1.3 Non-goals (v1)
 - Expansions. The architecture must allow them later; see Section 5.5.
 - Accounts, matchmaking, rankings, or monetisation.
+- A dedicated game server. The Host's browser runs the game (see ADR-0001).
+- Hiding information from the Host. The Host's tab holds the full state and could inspect it with dev tools; this is accepted for a friends-only game.
 - Mobile app store builds.
 - Public distribution of the official art or text.
 
 ### 1.4 Design principles
 - **Deterministic engine:** the same seed and the same action list always produce the same game.
-- **Server-authoritative:** clients never decide outcomes.
+- **Host-authoritative:** the Host's Room is the only place outcomes are decided. Other clients only send actions and render their own redacted view.
 - **Data-driven cards:** new cards should mostly be JSON, not code.
 - **Every pause is a prompt:** whenever the game needs a player's input, it creates an explicit `PendingDecision` object. There are no hidden waits.
 
@@ -49,18 +52,20 @@ A playable digital implementation of the *Here to Slay* base game for 2–6 play
 
 | Layer | Choice | Reason |
 |---|---|---|
-| Language | TypeScript (strict mode) | Shared types across engine, server, and client |
+| Language | TypeScript (strict mode) | Shared types across engine, Room, relay, and client |
 | Monorepo | pnpm workspaces | Simple package sharing |
-| Engine | Pure TS package | Testable, runs on server and client |
+| Engine | Pure TS package | Testable, runs in the Host's browser and in tests |
 | Validation | Zod | Validates card JSON and network messages |
 | Client | React + Vite | Fast dev loop |
 | Client state | Zustand | Lightweight |
 | Animation | Framer Motion | Card movement and flips |
-| Server | Node.js + `ws` (WebSocket) | Minimal and transparent; Colyseus is an acceptable alternative |
+| Room | Pure TS package (no DOM) | Owns state, timers, bots, Seats; runs in the Host's browser and in tests |
+| Relay | Cloudflare Worker + Durable Objects (WebSocket) | Forwards messages between the Host and friends; no game logic; free tier; `wrangler dev` locally |
+| Host persistence | IndexedDB | Action log survives a Host refresh |
 | Tests | Vitest | Fast, TS-native |
 | E2E tests | Playwright | Full game flows in the browser |
 
-> **Alternative:** boardgame.io provides phases, hidden state, and multiplayer out of the box. This design uses a custom engine because Here to Slay's nested interrupts (challenges and modifiers on rolls within effects) need fine control. If the agent uses boardgame.io instead, the domain model and effect DSL in this document still apply.
+> **Why not boardgame.io or Colyseus:** both assume a framework-owned server and their own state-sync model. Here to Slay's nested interrupts (challenges and modifiers on rolls within effects) need fine control, and the Host-plus-relay topology (Section 10) doesn't fit either framework.
 
 ### 2.2 Repository layout
 
@@ -91,10 +96,15 @@ here-to-slay/
 │  │  │  └─ monsters.json
 │  │  └─ src/schema.ts
 │  ├─ ai/                  # Bot players
-│  ├─ server/              # WebSocket game server
-│  └─ client/              # React app
+│  ├─ protocol/            # Client/Host/relay message types + Zod schemas
+│  ├─ room/                # Room: Seats, timers, bots, response windows, action log
+│  │  └─ src/connection/   # GameConnection, LocalConnection, RelayConnection
+│  ├─ relay/               # Cloudflare Worker + Durable Object (message router only)
+│  └─ client/              # React app (also hosts the Room when this tab is the Host)
 ├─ docs/
+│  ├─ adr/                 # Architecture decision records
 │  └─ TECHNICAL_DESIGN.md  # This document
+├─ GLOSSARY.md
 └─ package.json
 ```
 
@@ -205,7 +215,7 @@ export interface RuleConfig {
   winCheckTiming: "immediate" | "endOfAction"; // "immediate"
   leaderSelection: "random" | "draft"; // "random"
   firstPlayerMethod: "roll" | "random" | "host"; // "roll"
-  responseWindowMs: number;            // 8000 (online only)
+  responseWindowMs: number;            // 8000 (remote Seats only; local Seats have no countdown)
   reshuffleDiscardWhenDeckEmpty: boolean; // true
 }
 ```
@@ -732,14 +742,17 @@ Modes, set by the user:
 - **Only players who hold a usable card get asked.** This is faster, but **it leaks information**: if the game pauses for P3, everyone knows P3 holds a Challenge.
 - **Everyone gets asked every time, with a timer.** This hides information but is slower.
 
-Recommended default:
-- **Online:** ask everyone. Players who hold no usable card auto-pass after a short, **randomised** delay of 0.5–2.5 seconds so that timing reveals nothing. ⚙️ `responseWindowMs` for real players.
-- **Hot-seat:** ask only players who hold usable cards, since nothing is hidden at a shared screen anyway.
-- **Bot-only games:** resolve instantly.
+The rule is chosen **per Seat**, because one Room can mix Seat types:
+- **Remote Seat:** always asked. If the player holds no usable card, the Room auto-passes for them after a short, **randomised** delay of 0.5–2.5 seconds so that timing reveals nothing. Players who do hold a usable card get a countdown. ⚙️ `responseWindowMs`
+- **Local Seat** (on the Host's device): only interrupted if they hold a usable card. The Room shows a "Pass the device to P3" screen with **no countdown** until P3 confirms. Players at a shared table already see who reaches for the device, so nothing extra leaks.
+- **Bot Seat:** decides immediately, but its response is held back by the same randomised delay whenever a remote Seat is in the Room.
+- **Rooms with only bots, or only local Seats and bots:** no artificial delays.
+
+Remote players waiting on a local Seat just see "Waiting for responses…".
 
 ### 7.5 Ordering when several players respond at once
 
-On the server, the **first valid message received wins** priority. After any response, the window reopens to everyone (step 4 above). For hot-seat play, ask players in turn order starting after the active player.
+The Room processes messages one at a time in arrival order, so the **first valid response the Host receives wins** priority. After any response, the window reopens to everyone (step 4 above). Local Seats are asked in turn order starting after the active player, interleaved with remote responses as they arrive.
 
 ### 7.6 Edge cases to test
 - A modifier played on a challenge roll during a challenge against an item.
@@ -747,7 +760,8 @@ On the server, the **first valid message received wins** priority. After any res
 - A challenge against a Magic card that would have won the game.
 - The deck runs out during a draw-2 (reshuffle mid-effect).
 - The hero performing an effect is stolen mid-effect (the effect still completes; the controller stays the same).
-- A player is disconnected during their response window (timeout counts as a pass).
+- A player is disconnected during their response window (timeout counts as a pass, and is logged as a `PASS` action).
+- The Host refreshes mid-response-window (the replayed log restores the window; its deadline restarts).
 - A win condition is reached during an opponent's turn, for example by stealing a hero back.
 
 ---
@@ -778,7 +792,7 @@ All of these return a new RNG state (pure functions). **Never** call `Math.rando
 
 ## 9. Hidden Information & Per-Player Views
 
-The full `GameState` is **never** sent to clients. The server sends `getPlayerView(state, playerId)`:
+The full `GameState` exists only in the Host's Room and is **never** sent over the network. The Room sends each Seat `getPlayerView(state, playerId)`. The Host's own UI also renders only the Host's `PlayerView`, even though the full state is in the same tab:
 
 | Data | Owner sees | Others see |
 |---|---|---|
@@ -789,7 +803,7 @@ The full `GameState` is **never** sent to clients. The server sends `getPlayerVi
 | Discard pile | Full (public) | Full (public) |
 | Parties, items, leaders | Full | Full |
 | Slain monsters | Full | Full |
-| RNG state | **Never sent** | **Never sent** |
+| RNG state | **Never sent** (in the Host's tab only) | **Never sent** |
 | Pending decision | Full if it's theirs | "Waiting for P2 to choose…" |
 | Cards seen via LOOK effects | Shown in their decision prompt only | — |
 
@@ -799,74 +813,153 @@ Events are filtered the same way: `CARD_DRAWN` shows the card to the drawer and 
 
 ---
 
-## 10. Multiplayer Server
+## 10. Multiplayer: Host, Relay & Connections
+
+See ADR-0001 for why there is no dedicated game server.
 
 ### 10.1 Architecture
 
 ```
- Browser A ─┐                         ┌──────────────────────┐
- Browser B ─┼── WebSocket (JSON) ───► │  Node game server     │
- Browser C ─┘                         │  ├─ RoomManager       │
-                                      │  ├─ Room (per game)   │
-                                      │  │   ├─ GameState     │
-                                      │  │   ├─ engine        │
-                                      │  │   ├─ timers        │
-                                      │  │   └─ bots          │
-                                      │  └─ persistence (opt) │
-                                      └──────────────────────┘
+ Friend's browser ─┐                                    ┌── Host's browser tab ──────────────────┐
+ Friend's browser ─┼── WebSocket ──► Relay ◄── WebSocket┤  Room                                  │
+                   │                (Cloudflare Worker, │  ├─ GameState (full, unredacted)       │
+                   │                 1 Durable Object   │  ├─ engine                             │
+                   │                 per Room Code;     │  ├─ Seats: local / remote / bot        │
+                   │                 no game logic)     │  ├─ timers (deadline timestamps)       │
+                   │                                    │  ├─ bots                               │
+                   │                                    │  └─ action log → IndexedDB             │
+                   │                                    │  Host's own UI ◄─ LocalConnection      │
+                   │                                    └────────────────────────────────────────┘
 ```
 
-- One `Room` per game. The room holds the authoritative `GameState`.
-- The server is the **only** place where `applyAction` runs for real. Clients may run it locally for optimistic previews, but this is not required in v1.
-- Bots run on the server inside the room.
+- One **Room** per game. It runs in the **Host's** browser tab and holds the authoritative `GameState`.
+- The Room is the **only** place where `applyAction` runs for real.
+- Bots and timers run inside the Room.
+- The **relay** forwards messages and stamps each one with the sender's identity. It never reads the game messages it forwards.
+- The `Room` class has no DOM or network dependencies, so tests run it directly (Section 13).
 
-### 10.2 Protocol (validated with Zod on both ends)
+### 10.2 Seats
 
-Client to server:
+Each Seat in a Room has one kind:
+
+| Seat kind | Where the player is | Connection |
+|---|---|---|
+| `local` | At the Host's device (hot-seat) | `LocalConnection` |
+| `remote` | In another browser | `RelayConnection` via the relay |
+| `bot` | Inside the Room | None; the Room calls the bot directly |
+
+The Host is always a `local` Seat. A Room can mix all three kinds. Pure hot-seat and pure online games are just special cases.
+
+### 10.3 Client connection interface
+
+Every UI, whether it's the Host's or a friend's, talks to its Room through one interface:
+
+```ts
+export interface GameConnection {
+  send(msg: ClientMsg): void;
+  onMessage(cb: (msg: RoomMsg) => void): () => void; // returns unsubscribe
+  close(): void;
+}
+```
+
+- `LocalConnection`: calls the Room in the same tab directly. The Host's UI and hot-seat play use it.
+- `RelayConnection`: a WebSocket to the relay. Friends use it.
+
+The client UI never knows which one it has.
+
+### 10.4 Game protocol (Seat ↔ Room, validated with Zod in the Room)
+
+The Room validates every incoming message, because a friend's client could send anything.
+
+Seat to Room:
 
 ```ts
 type ClientMsg =
-  | { t: "createRoom"; name: string; config?: Partial<RuleConfig> }
-  | { t: "joinRoom"; roomCode: string; name: string }
-  | { t: "addBot"; difficulty: "easy" | "normal" }
-  | { t: "startGame" }
-  | { t: "action"; action: Action; clientSeq: number }
-  | { t: "reconnect"; roomCode: string; token: string }
+  | { t: "joinRoom"; name: string }
+  | { t: "addBot"; difficulty: "easy" | "normal" }        // Host only
+  | { t: "addLocalSeat"; name: string }                   // Host only
+  | { t: "setConfig"; config: Partial<RuleConfig> }       // Host only, lobby only
+  | { t: "startGame" }                                    // Host only
+  | { t: "action"; seat: SeatId; action: Action; clientSeq: number }
+  | { t: "resync" }
   | { t: "chat"; text: string };
 ```
 
-Server to client:
+Room to Seat:
 
 ```ts
-type ServerMsg =
-  | { t: "roomState"; roomCode: string; players: LobbyPlayer[]; you: PlayerId; token: string }
-  | { t: "gameView"; view: PlayerView; version: number }
-  | { t: "events"; events: GameEvent[]; version: number }
+type RoomMsg =
+  | { t: "lobby"; roomCode: string; seats: LobbySeat[]; you: SeatId[] }
+  | { t: "update"; version: number; events: GameEvent[]; view: PlayerView }
   | { t: "actionRejected"; clientSeq: number; error: string }
+  | { t: "hostAway" }                // the relay sends this when the Host disconnects
   | { t: "error"; message: string };
 ```
 
-### 10.3 Key behaviours
-- **Versioning:** every state change increments `version`. A client that misses a version requests a full `gameView`.
-- **Identity:** the server, not the client, sets `action.player` from the socket's identity, so a client cannot act as another player.
-- **Timers:** response windows and decisions have server-side timeouts. On timeout, response windows auto-pass and decisions pick a default (the first legal option, or a random one for discards).
-- **Reconnection:** `token` identifies a returning player. Their seat is held for 2 minutes; after that, a bot takes over.
-- **Room codes:** 5 characters, easy to read aloud (no 0/O/1/I).
+**One update message.** Every state change increments `version`. The Room sends each Seat one `update`. Its `events` are filtered for that Seat (Section 9) and describe the change from `version - 1` to `version`. Its `view` is the resulting state. The client animates the events and then applies the view. If the client sees a version gap (it missed messages), it skips the animations and applies the view directly. No separate resync is needed, but a client may send `resync` after it reconnects.
 
-### 10.4 Hosting for a personal project
-- Run the server locally and share it with friends via a tunnel (Cloudflare Tunnel, ngrok), or deploy to a small free or cheap Node host such as Fly.io, Render, or Railway.
-- Keep rooms in memory. Persistence is optional: write replays to disk when a game ends.
+**Identity.** The Room ignores any identity claim in a remote message. It uses the `from` token the relay stamps on the message (Section 10.5) to find that player's Seat, sets `action.player` from that Seat, and rejects an action whose `seat` isn't owned by that token. A `local` Seat's actions come from `LocalConnection`, and the UI picks the Seat according to whose turn it is or whose prompt is showing.
+
+### 10.5 Relay protocol
+
+The relay is a Cloudflare Worker. Each Room Code maps to one Durable Object, which holds the open WebSockets for that Room. Locally, `wrangler dev` runs the same code.
+
+HTTP:
+- `POST /rooms` → `{ roomCode, hostToken }`. The relay creates a Durable Object for a fresh Room Code. The Host's tab stores `hostToken` in localStorage.
+- `GET /rooms/:code/ws?hostToken=…` → the Host's WebSocket.
+- `GET /rooms/:code/ws?seatToken=…` → a friend's WebSocket. With no `seatToken`, the relay issues a new one in its first frame, and the friend stores it in localStorage.
+
+Frames (JSON). The relay reads only the outer fields and passes `payload` through untouched:
+
+```ts
+// Friend → relay: always routed to the Host. The relay adds `from`.
+{ payload: ClientMsg }
+// Relay → Host
+{ kind: "msg"; from: SeatToken; payload: ClientMsg }
+{ kind: "peerJoined" | "peerLeft"; seatToken: SeatToken }
+{ kind: "tick" }                                  // every 1s while the Room has peers
+// Host → relay
+{ to: SeatToken | "all"; payload: RoomMsg }
+// Relay → friend
+{ kind: "msg"; payload: RoomMsg }
+{ kind: "welcome"; seatToken: SeatToken }
+{ kind: "hostAway" | "hostBack" | "roomClosed" }
+```
+
+Rules:
+- A connection only counts as the Host if it presents the `hostToken`. After a refresh, the Host reconnects with the token and takes the Host role back.
+- If the Host has been disconnected for **10 minutes**, the relay sends `roomClosed` to every friend, deletes the Durable Object's state, and frees the Room Code.
+- Room Codes are 5 characters and easy to read aloud (no 0/O/1/I).
+- The relay never parses or stores `payload`. The game protocol can change without redeploying the relay.
+
+### 10.6 Timers
+
+- Response windows and decisions have timeouts, but only for remote Seats (Section 7.4). On timeout, the Room creates a normal `PASS` or `RESOLVE_DECISION` action (the first legal option, or a random one for discards) and applies it like any other action. **Every timeout is recorded in the action log**, so a replay takes exactly the same path.
+- Timers live in the Room, never in the engine. The engine stays free of `Date.now()`.
+- Each timer is stored as a **deadline timestamp**. The Room checks for expired deadlines on every incoming message, on the relay's 1-second `tick`, on its own `setTimeout`, and on `visibilitychange`. Browsers slow down `setTimeout` in background tabs; the relay's ticks keep deadlines on time even then.
+- The Host's UI shows a "Keep this tab open: you are hosting" notice.
+
+### 10.7 Persistence & reconnection
+
+- **Host refresh:** after every applied action, the Room saves `{ roomCode, seed, config, seats, cardDefsVersion, actions[] }` to IndexedDB. On reload, the Host reconnects to the relay with `hostToken`, rebuilds the state by replaying the log (Section 8.3), and sends every Seat a fresh `update`. Any open deadlines restart from their full duration.
+- **Host leaves for good:** the Room ends. The game never moves to another device, because that device would need the full state.
+- **Friend reconnects:** the friend's `seatToken` from localStorage reclaims their Seat, and the Room sends them a fresh `update`. A disconnected friend's Seat is held for 2 minutes. After that, a bot takes over the Seat, and the friend can take it back on their turn boundary when they return.
+- Optionally, when a game ends, the Host can download the replay as a JSON file.
+
+### 10.8 Deployment
+- **Relay:** `wrangler deploy` to Cloudflare's free tier. This is the only thing hosted online.
+- **Client:** a static site, for example Cloudflare Pages. The relay URL is set at build time.
 
 ---
 
 ## 11. AI Opponents
 
-All bots implement one interface and only ever choose from `getLegalActions` or `pendingDecision.options`:
+Bots run inside the Room, in the Host's tab. All bots implement one interface and only ever choose from `getLegalActions` or `pendingDecision.options`:
 
 ```ts
 export interface Bot {
   chooseAction(view: PlayerView, legal: Action[]): Action;
-  // view = the bot's own redacted view; bots must not cheat
+  // view = the bot's own redacted view; bots must not cheat, even though the Room holds the full state
 }
 ```
 
@@ -922,18 +1015,19 @@ Decisions: target the player closest to winning.
 ```
 
 ### 12.2 Principles
-- **The UI only renders `PlayerView` and sends `Action`s.** It contains no game rules.
+- **The UI only renders `PlayerView` and sends `Action`s through a `GameConnection`** (Section 10.3). It contains no game rules and doesn't know whether it is local or remote.
 - **Drive interaction from legal actions:** highlight only playable cards, valid targets, and attackable monsters. Disabled elements show a tooltip explaining why ("Needs 2 heroes").
 - **Render `pendingDecision`** as a modal or inline selection with its options.
 - **Queue animations:** incoming `GameEvent`s go into an animation queue and play in order (dice roll, card fly, flip). Update the view after each event's animation, or use a "skip animations" toggle.
 - **Response windows** show a large, clear bar with a countdown, the eligible cards, and a Pass button.
-- **Hot-seat mode** shows a "Pass the device to P2" screen that hides the hand between players.
+- **Local Seats** get a "Pass the device to P2" screen that hides the hand between players, for both turns and response windows (Section 7.4).
+- **Host status:** the Host sees a "you are hosting, keep this tab open" notice. Friends see a "Waiting for Host…" overlay on `hostAway`.
 
 ### 12.3 Component list
 
 ```
 <App>
- ├ <Lobby/>                  create/join room, add bots, rules config
+ ├ <Lobby/>                  create/join Room, add local/bot Seats, rules config
  └ <GameScreen>
     ├ <OpponentArea/> ×N
     ├ <CenterArea>  <MonsterRow/> <DeckPile/> <DiscardPile/> <DiceTray/>
@@ -960,7 +1054,9 @@ Render cards with HTML/CSS (title, class icon, roll number, text) so placeholder
 | Scenario | Hand-built states plus action lists with an expected outcome | Vitest |
 | Property / fuzz | Random bots play 10,000 seeded games; assert invariants | Vitest |
 | Replay | Saved replays of past bugs, kept as regression tests | Vitest |
-| E2E | Create a room, two browser clients, play to game over | Playwright |
+| Room | Mixed-Seat Rooms driven through `LocalConnection` and a fake relay; timeouts logged as actions; Host refresh rebuilds an identical state | Vitest |
+| Relay | Routing, `from` stamping, Host token check, 10-minute expiry | Vitest + `wrangler` local test pool |
+| E2E | Host tab + two friend tabs against a local relay, play to game over | Playwright |
 
 ### 13.1 Invariants (checked after every action in fuzz tests)
 - Total card count across all zones never changes. No card is duplicated or lost.
@@ -1012,16 +1108,17 @@ The `nextDice` helper requires an RNG override hook that is only available in te
 - Stack, challenge windows, challenge duels, modifier windows, nested rolls.
 - ✅ All flows in Section 7 and the edge cases in 7.6 have passing tests. Fuzz holds over 10,000 games.
 
-**M4: Hot-seat client**
-- React UI rendering `PlayerView`, the legal-action highlighting, decision modal, response bar, game log, pass-device screen. The engine runs in the browser.
-- ✅ Two to four people can finish a game on one computer without consulting the code.
+**M4: Room + hot-seat client**
+- `packages/room` with local and bot Seats, timers as deadlines, the action log in IndexedDB, and `GameConnection` + `LocalConnection`.
+- React UI rendering `PlayerView` through `LocalConnection`: legal-action highlighting, decision modal, response bar, game log, pass-device screen for turns and response windows.
+- ✅ Two to four people can finish a game on one computer without consulting the code. Refreshing the tab mid-game restores the same state.
 
 **M5: Online multiplayer**
-- WebSocket server, rooms, per-player views, timers, reconnection.
-- ✅ Three browsers on different machines finish a game. Refreshing a page mid-game reconnects to the same seat.
+- `packages/relay` (Worker + Durable Object), `RelayConnection`, remote Seats, the per-Seat response-window rules, relay ticks, Host and seat tokens.
+- ✅ A Host and two friends on different machines finish a game, including a Room that mixes local, remote, and bot Seats. Refreshing a friend's tab reconnects them to the same Seat. Refreshing the Host's tab resumes the game for everyone. The Host's tab running in the background doesn't stall the timers.
 
 **M6: Bots**
-- Easy bot. Bots fill empty seats in local and online games.
+- Easy bot. Bots fill empty Seats and take over abandoned remote Seats.
 - ✅ A human versus three easy bots finishes without stalls. 1,000 all-bot games finish with no errors.
 
 **M7: Polish**
