@@ -25,6 +25,32 @@ const engineDeterminism = {
   ],
 };
 
+/**
+ * The Room has no DOM or network dependencies, and its clock and randomness
+ * are passed in so tests can control them (TECHNICAL_DESIGN.md §10.1).
+ */
+const roomIsolation = {
+  "no-restricted-properties": [
+    "error",
+    { object: "Math", property: "random", message: "The Room takes its source of randomness as an input." },
+    { object: "Date", property: "now", message: "The Room takes its clock as an input." },
+    { object: "crypto", property: "getRandomValues", message: "The Room takes its source of randomness as an input." },
+    { object: "crypto", property: "randomUUID", message: "The Room takes its source of randomness as an input." },
+  ],
+  "no-restricted-globals": [
+    "error",
+    ...["performance", "setTimeout", "setInterval"].map((name) => ({ name, message: "The Room takes its clock as an input." })),
+    ...["window", "document", "localStorage", "indexedDB", "fetch", "WebSocket", "XMLHttpRequest"].map((name) => ({
+      name,
+      message: "The Room has no DOM or network dependencies; pass them in.",
+    })),
+  ],
+  "no-restricted-syntax": [
+    "error",
+    { selector: "NewExpression[callee.name='Date']", message: "The Room takes its clock as an input." },
+  ],
+};
+
 export default tseslint.config(
   { ignores: ["**/node_modules/**", "**/dist/**", "**/coverage/**", "**/.wrangler/**"] },
   js.configs.recommended,
@@ -35,5 +61,9 @@ export default tseslint.config(
   {
     files: ["packages/engine/src/**/*.ts", "packages/toy-engine/src/**/*.ts"],
     rules: engineDeterminism,
+  },
+  {
+    files: ["packages/room/src/**/*.ts"],
+    rules: roomIsolation,
   },
 );

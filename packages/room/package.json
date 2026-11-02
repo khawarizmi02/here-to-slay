@@ -1,0 +1,15 @@
+{
+  "name": "@here-to-slay/room",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@here-to-slay/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@here-to-slay/toy-engine": "workspace:*"
+  }
+}
