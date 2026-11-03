@@ -11,6 +11,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@here-to-slay/toy-engine": "workspace:*"
+    "@here-to-slay/toy-engine": "workspace:*",
+    "fake-indexeddb": "^6.2.7"
   }
 }

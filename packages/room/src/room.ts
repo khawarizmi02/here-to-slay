@@ -16,12 +16,15 @@ import {
 import { z } from "zod";
 import { randomBot, type Bot, type BotDifficulty, type BotFactory } from "./bot.js";
 import { LocalConnection } from "./connection.js";
+import { RoomRecordSchema, type ActionLogStore, type RecordSeat, type RoomRecord } from "./record.js";
 
 /**
  * The rules engine as the Room uses it (TECHNICAL_DESIGN.md §6.1). Seat ids
  * double as engine player ids.
  */
 export interface RoomEngine<State> {
+  /** Saved with the action log: a replay reproduces the game only under the same card definitions. */
+  readonly cardDefsVersion: string;
   /** May throw, for example on a config the engine doesn't accept. */
   createGame(opts: { players: { id: PlayerId; name: string; isBot: boolean }[]; seed: string; config: ConfigPatch }): State;
   /** On `ok: false` the state must be left unchanged. */
@@ -49,6 +52,11 @@ export interface RoomOptions<State> {
   roomCode?: RoomCode;
   /** Makes the bot for each bot Seat. Without one, every bot picks a random legal action using `random`. */
   bot?: BotFactory;
+  /**
+   * Where the Room saves its record after every applied action, so a Host
+   * refresh can rebuild the game with `Room.restore`. Without one, nothing is saved.
+   */
+  store?: ActionLogStore;
 }
 
 export const MAX_SEATS = 6;
@@ -62,9 +70,17 @@ interface Seat {
   connection: LocalConnection | null;
   /** Set only for a bot Seat. */
   bot: Bot | null;
+  difficulty: BotDifficulty | null;
 }
 
-type Game<State> = { state: State; version: number };
+interface Game<State> {
+  state: State;
+  version: number;
+  seed: string;
+  config: ConfigPatch;
+  /** Every applied action since the start, in order: version is always `actions.length + 1`. */
+  actions: Action[];
+}
 
 /**
  * One game session, from the lobby through game over, running in the Host's
@@ -77,7 +93,12 @@ export class Room<State> {
   readonly #engine: RoomEngine<State>;
   readonly #random: () => number;
   readonly #makeBot: BotFactory;
+  readonly #store: ActionLogStore | null;
+  /** Settles once every save made so far has settled. */
+  #saving: Promise<void> = Promise.resolve();
+  #saveError: unknown = null;
   readonly #seats: Seat[] = [];
+  /** The first Seat is always the Host's. */
   readonly #hostSeat: SeatId;
   #nextSeatNumber = 1;
   #botCount = 0;
@@ -89,14 +110,70 @@ export class Room<State> {
   #processing = false;
   readonly #errors: unknown[] = [];
 
-  constructor(opts: RoomOptions<State>) {
+  constructor(opts: RoomOptions<State>);
+  /** @internal Used by `Room.restore`. */
+  constructor(opts: RoomOptions<State>, restoring: RoomRecord);
+  constructor(opts: RoomOptions<State>, restoring?: RoomRecord) {
     this.#engine = opts.engine;
     this.#random = opts.random;
     this.#makeBot = opts.bot ?? (() => randomBot(this.#random));
+    this.#store = opts.store ?? null;
     this.roomCode = opts.roomCode ?? this.#makeRoomCode();
-    const host = this.#addSeat(opts.hostName);
+    if (restoring) {
+      this.#replay(restoring);
+    } else {
+      this.#addSeat(opts.hostName);
+    }
+    const host = this.#seats[0]!;
     this.#hostSeat = host.id;
     this.#connect(host);
+    // The log may stop on a bot's move, if the tab died before the bot's reply was saved.
+    if (restoring) this.#run();
+  }
+
+  /**
+   * Rebuilds a Room from its saved record after the Host's tab reloads
+   * (TECHNICAL_DESIGN.md §10.7): the same Room Code and Seats, and the game
+   * state reached by replaying every logged action. Each Seat gets a fresh
+   * `update` when it connects, and the Room keeps saving to `opts.store`.
+   *
+   * Throws if the record is malformed, was made with other card
+   * definitions, or doesn't replay.
+   */
+  static restore<State>(opts: Omit<RoomOptions<State>, "hostName" | "roomCode">, record: RoomRecord): Room<State> {
+    const parsed = RoomRecordSchema.parse(record);
+    return new Room({ ...opts, hostName: parsed.seats[0]!.name, roomCode: parsed.roomCode }, parsed);
+  }
+
+  /** Recreates the Seats and replays the game from a record. Called only from the constructor. */
+  #replay(record: RoomRecord): void {
+    if (record.cardDefsVersion !== this.#engine.cardDefsVersion) {
+      throw new Error(
+        `This game was saved with card definitions ${record.cardDefsVersion}, but the engine has ${this.#engine.cardDefsVersion}`,
+      );
+    }
+    for (const seat of record.seats) {
+      // No Seat can be added once the game has started, so the Seat counters needn't be restored.
+      this.#seats.push(
+        seat.kind === "bot"
+          ? { ...seat, connection: null, bot: this.#makeBot({ id: seat.id, difficulty: seat.difficulty }) }
+          : { ...seat, connection: null, bot: null, difficulty: null },
+      );
+    }
+
+    let state = this.#engine.createGame({
+      players: this.#seats.map((s) => ({ id: s.id, name: s.name, isBot: s.kind === "bot" })),
+      seed: record.seed,
+      config: { ...record.config },
+    });
+    record.actions.forEach((action, i) => {
+      const result = this.#engine.applyAction(state, action);
+      if (!result.ok) {
+        throw new Error(`The saved game doesn't replay: action ${i + 1} (${action.type}) was rejected: ${result.error ?? "illegal"}`);
+      }
+      state = result.state;
+    });
+    this.#game = { state, version: record.actions.length + 1, seed: record.seed, config: record.config, actions: [...record.actions] };
   }
 
   /**
@@ -148,6 +225,11 @@ export class Room<State> {
 
   #receive(seat: Seat, connection: LocalConnection, raw: unknown): void {
     this.#inbox.push({ seat, connection, raw });
+    this.#run();
+  }
+
+  /** Works through the inbox and the bots until nothing is left to do. */
+  #run(): void {
     if (this.#processing) return;
     this.#processing = true;
     try {
@@ -257,12 +339,14 @@ export class Room<State> {
       case "startGame": {
         if (this.#seats.length < MIN_SEATS_TO_START) return `The game needs at least ${MIN_SEATS_TO_START} Seats`;
         try {
+          const seed = this.#makeSeed();
+          const config = { ...this.#config };
           const state = this.#engine.createGame({
             players: this.#seats.map((s) => ({ id: s.id, name: s.name, isBot: s.kind === "bot" })),
-            seed: this.#makeSeed(),
-            config: { ...this.#config },
+            seed,
+            config: { ...config },
           });
-          this.#commit(state, [], 0);
+          this.#commit({ state, version: 1, seed, config, actions: [] }, [], null);
         } catch (e) {
           return `Could not start the game: ${errorMessage(e)}`;
         }
@@ -286,7 +370,7 @@ export class Room<State> {
     try {
       const result = this.#engine.applyAction(game.state, action);
       if (!result.ok) return result.error ?? `${action.type} is not a legal action right now`;
-      this.#commit(result.state, result.events, game.version);
+      this.#commit({ ...game, state: result.state, version: game.version + 1 }, result.events, copy(action));
     } catch (e) {
       return `The engine failed on ${action.type}: ${errorMessage(e)}`;
     }
@@ -329,20 +413,82 @@ export class Room<State> {
   }
 
   // -------------------------------------------------------------------------
+  // Action log
+  // -------------------------------------------------------------------------
+
+  /**
+   * Resolves once every save made so far has landed in the store. Rejects
+   * with the first failed save since the last call; the game carries on
+   * either way, and the next save writes the whole record again.
+   */
+  async whenSaved(): Promise<void> {
+    await this.#saving;
+    const error = this.#saveError;
+    this.#saveError = null;
+    if (error !== null) throw error;
+  }
+
+  /**
+   * The game's replay as a JSON file, for the Host to download at game over
+   * (TECHNICAL_DESIGN.md §10.7). Its contents are the saved record, so
+   * `Room.restore` replays it. The Room has no DOM: the Host's UI turns this
+   * into a download. Null before the game starts.
+   */
+  replayFile(): { filename: string; mimeType: "application/json"; contents: string } | null {
+    if (!this.#game) return null;
+    return {
+      filename: `here-to-slay-${this.roomCode}.json`,
+      mimeType: "application/json",
+      contents: JSON.stringify(this.#recordOf(this.#game), null, 2),
+    };
+  }
+
+  #recordOf(game: Game<State>): RoomRecord {
+    return {
+      roomCode: this.roomCode,
+      seed: game.seed,
+      config: game.config,
+      seats: this.#seats.map(
+        (s): RecordSeat =>
+          s.kind === "bot" ? { id: s.id, name: s.name, kind: "bot", difficulty: s.difficulty! } : { id: s.id, name: s.name, kind: "local" },
+      ),
+      cardDefsVersion: this.#engine.cardDefsVersion,
+      actions: game.actions,
+    };
+  }
+
+  #save(game: Game<State>): void {
+    const store = this.#store;
+    if (!store) return;
+    let saved: Promise<void>;
+    try {
+      // The store copies the record before save returns, so the live action list is safe to hand over.
+      saved = store.save(this.#recordOf(game));
+    } catch (e) {
+      saved = Promise.reject(e);
+    }
+    this.#saving = Promise.all([this.#saving, saved.catch((e: unknown) => {
+      this.#saveError ??= e;
+    })]).then(() => undefined);
+  }
+
+  // -------------------------------------------------------------------------
   // Updates and lobby
   // -------------------------------------------------------------------------
 
   /**
-   * One state change: bump the version and send every connected Seat exactly
-   * one update. Every update is built before anything changes, so an engine
-   * that throws while building views leaves the Room as it was.
+   * One state change: log `action`, save, and send every connected Seat
+   * exactly one update for the new version. Every update is built before
+   * anything changes, so an engine that throws while building views leaves
+   * the Room as it was.
    */
-  #commit(state: State, events: GameEvent[], previousVersion: number): void {
-    const version = previousVersion + 1;
+  #commit(next: Game<State>, events: GameEvent[], action: Action | null): void {
     const outbox = this.#seats
       .filter((seat) => seat.connection)
-      .map((seat) => [seat, this.#update(state, version, seat, this.#engine.getPlayerEvents(events, seat.id))] as const);
-    this.#game = { state, version };
+      .map((seat) => [seat, this.#update(next.state, next.version, seat, this.#engine.getPlayerEvents(events, seat.id))] as const);
+    if (action) next.actions.push(action);
+    this.#game = next;
+    this.#save(next);
     for (const [seat, msg] of outbox) this.#send(seat, msg);
   }
 
@@ -371,7 +517,7 @@ export class Room<State> {
   }
 
   #addSeat(name: string): Seat {
-    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind: "local", connection: null, bot: null };
+    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind: "local", connection: null, bot: null, difficulty: null };
     this.#seats.push(seat);
     return seat;
   }
@@ -379,7 +525,7 @@ export class Room<State> {
   #addBotSeat(difficulty: BotDifficulty): void {
     const id = `s${this.#nextSeatNumber++}`;
     const bot = this.#makeBot({ id, difficulty });
-    this.#seats.push({ id, name: `Bot ${++this.#botCount}`, kind: "bot", connection: null, bot });
+    this.#seats.push({ id, name: `Bot ${++this.#botCount}`, kind: "bot", connection: null, bot, difficulty });
   }
 
   // -------------------------------------------------------------------------
