@@ -18,9 +18,51 @@ export interface GameConnection {
  * Messages that arrive before anyone subscribes are kept and handed to the
  * first subscriber, so the UI doesn't miss the opening `lobby` or `update`.
  */
-export class LocalConnection implements GameConnection {
+/**
+ * A connection's subscribers. Messages that arrive before anyone subscribes
+ * are kept and handed to the first subscriber, so the UI doesn't miss the
+ * opening `lobby` or `update`. Each subscriber gets its own copy: messages
+ * are plain JSON, and a UI must not share objects with the Room or another UI.
+ */
+export class Subscribers {
   readonly #listeners = new Set<(msg: RoomMsg) => void>();
   #backlog: RoomMsg[] | null = [];
+
+  add(cb: (msg: RoomMsg) => void): () => void {
+    this.#listeners.add(cb);
+    const backlog = this.#backlog;
+    if (backlog) {
+      this.#backlog = null;
+      for (const msg of backlog) cb(copy(msg));
+    }
+    return () => {
+      this.#listeners.delete(cb);
+    };
+  }
+
+  deliver(msg: RoomMsg): void {
+    if (this.#backlog) {
+      this.#backlog.push(msg);
+      return;
+    }
+    for (const cb of [...this.#listeners]) cb(copy(msg));
+  }
+
+  clear(): void {
+    this.#listeners.clear();
+    this.#backlog = null;
+  }
+}
+
+/**
+ * A connection to a Room in the same tab, for the Host's UI and hot-seat
+ * players. Get one from `Room.hostConnection` or `Room.connectLocalSeat`.
+ *
+ * Messages that arrive before anyone subscribes are kept and handed to the
+ * first subscriber, so the UI doesn't miss the opening `lobby` or `update`.
+ */
+export class LocalConnection implements GameConnection {
+  readonly #subscribers = new Subscribers();
   #closed = false;
 
   /** @internal Used by the Room; UI code gets connections from the Room. */
@@ -47,34 +89,20 @@ export class LocalConnection implements GameConnection {
   }
 
   onMessage(cb: (msg: RoomMsg) => void): () => void {
-    this.#listeners.add(cb);
-    const backlog = this.#backlog;
-    if (backlog) {
-      this.#backlog = null;
-      for (const msg of backlog) cb(copy(msg));
-    }
-    return () => {
-      this.#listeners.delete(cb);
-    };
+    return this.#subscribers.add(cb);
   }
 
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    this.#listeners.clear();
-    this.#backlog = null;
+    this.#subscribers.clear();
     this.onClose();
   }
 
   /** @internal Called by the Room to deliver a message to the UI. */
   deliver(msg: RoomMsg): void {
     if (this.#closed) return;
-    if (this.#backlog) {
-      this.#backlog.push(msg);
-      return;
-    }
-    // Each listener gets its own copy: views are plain JSON, and the UI must not share objects with the Room.
-    for (const cb of [...this.#listeners]) cb(copy(msg));
+    this.#subscribers.deliver(msg);
   }
 }
 

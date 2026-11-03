@@ -1,4 +1,4 @@
-import { ActionSchema, ConfigPatchSchema, PlayerNameSchema, RoomCodeSchema, SeatIdSchema } from "@here-to-slay/protocol";
+import { ActionSchema, ConfigPatchSchema, PlayerNameSchema, RoomCodeSchema, SeatIdSchema, SeatTokenSchema } from "@here-to-slay/protocol";
 import { z } from "zod";
 
 /**
@@ -24,6 +24,11 @@ export const RoomRecordSchema = z.strictObject({
           kind: z.literal("bot"),
           difficulty: z.enum(["easy", "normal"]),
         }),
+        /**
+         * A friend's Seat. Their seat token lets them reclaim it after the Host
+         * refreshes; the downloadable replay leaves it out.
+         */
+        z.strictObject({ id: SeatIdSchema, name: PlayerNameSchema, kind: z.literal("remote"), seatToken: SeatTokenSchema.optional() }),
       ]),
     )
     .min(1)

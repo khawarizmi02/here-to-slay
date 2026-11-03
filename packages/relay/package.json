@@ -12,6 +12,8 @@
     "@here-to-slay/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@here-to-slay/room": "workspace:*",
+    "@here-to-slay/toy-engine": "workspace:*",
     "@cloudflare/vitest-plugin": "^1.5.0",
     "@cloudflare/workers-types": "^5.20261102.1",
     "wrangler": "^4.156.2"
