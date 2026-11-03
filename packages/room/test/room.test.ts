@@ -1,7 +1,7 @@
 import { RoomMsgSchema, type Action, type ClientMsg, type ConfigPatch, type RoomMsg } from "@here-to-slay/protocol";
 import * as toy from "@here-to-slay/toy-engine";
 import { describe, expect, it } from "vitest";
-import { Room, type Bot, type GameConnection, type RoomEngine, type RoomOptions } from "../src/index.js";
+import { MemoryActionLogStore, Room, type Bot, type RoomRecord, type GameConnection, type RoomEngine, type RoomOptions } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
 // Test harness: everything goes through the GameConnection seam.
@@ -9,6 +9,7 @@ import { Room, type Bot, type GameConnection, type RoomEngine, type RoomOptions 
 
 /** The toy engine behind the Room's engine interface. Config values must be positive integers. */
 const toyEngine: RoomEngine<toy.GameState> = {
+  cardDefsVersion: "toy-1",
   createGame({ players, seed, config }) {
     const parsed: Partial<toy.ToyConfig> = {};
     for (const [key, value] of Object.entries(config)) {
@@ -706,5 +707,214 @@ describe("bot Seats", () => {
       host.send({ t: "action", seat: hostSeat, action: { type: "DRAW_CARD", player: hostSeat }, clientSeq: 0 }),
     ).toThrow("isn't legal");
     expect(host.last("update").version).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Action log
+// ---------------------------------------------------------------------------
+
+describe("action log", () => {
+  it("saves the record when the game starts and after every applied action, never a rejected one", async () => {
+    const store = new MemoryActionLogStore();
+    const { room, host, hostSeat, clients, seatIds } = hotSeat(["Bob"], { store, roomCode: "ABC23" });
+    const bob = clients.get(seatIds[1]!)!;
+    host.send({ t: "setConfig", config: { targetScore: 9 } });
+    await room.whenSaved();
+    expect(await store.load("ABC23")).toBeNull();
+
+    host.send({ t: "startGame" });
+    await room.whenSaved();
+    const started = (await store.load("ABC23"))!;
+    expect(started).toEqual({
+      roomCode: "ABC23",
+      seed: expect.any(String),
+      config: { targetScore: 9 },
+      seats: [
+        { id: hostSeat, name: "Alice", kind: "local" },
+        { id: seatIds[1], name: "Bob", kind: "local" },
+      ],
+      cardDefsVersion: "toy-1",
+      actions: [],
+    });
+
+    // Out of turn: rejected, so not logged.
+    bob.send({ t: "action", seat: seatIds[1]!, action: { type: "DRAW_CARD", player: seatIds[1]! }, clientSeq: 0 });
+    expect(bob.last("actionRejected").clientSeq).toBe(0);
+    await room.whenSaved();
+    expect((await store.load("ABC23"))!.actions).toEqual([]);
+
+    // Logged with the Seat that acted, whatever the message claimed.
+    host.send({ t: "action", seat: hostSeat, action: { type: "DRAW_CARD", player: "someone-else" }, clientSeq: 0 });
+    await room.whenSaved();
+    expect((await store.load("ABC23"))!).toEqual({ ...started, actions: [{ type: "DRAW_CARD", player: hostSeat }] });
+  });
+
+  it("logs bot moves and keeps one logged action per version", async () => {
+    const store = new MemoryActionLogStore();
+    const { room, host, hostSeat } = hotSeat([], { store, roomCode: "ABC23" });
+    host.send({ t: "addBot", difficulty: "normal" });
+    const botSeat = host.last("lobby").seats[1]!.id;
+    host.send({ t: "startGame" });
+    host.send({ t: "action", seat: hostSeat, action: { type: "DRAW_CARD", player: hostSeat }, clientSeq: 0 });
+    await room.whenSaved();
+
+    const saved = (await store.load("ABC23"))!;
+    expect(saved.seats[1]).toEqual({ id: botSeat, name: "Bot 1", kind: "bot", difficulty: "normal" });
+    expect(saved.actions[0]).toEqual({ type: "DRAW_CARD", player: hostSeat });
+    expect(saved.actions.slice(1).length).toBeGreaterThan(0);
+    for (const action of saved.actions.slice(1)) expect(action.player).toBe(botSeat);
+    expect(saved.actions).toHaveLength(host.last("update").version - 1);
+  });
+
+  it("reports a save that failed", async () => {
+    const store = new MemoryActionLogStore();
+    store.save = () => Promise.reject(new Error("disk full"));
+    const { room, host } = hotSeat(["Bob"], { store });
+    host.send({ t: "startGame" });
+    await expect(room.whenSaved()).rejects.toThrow("disk full");
+    // The game itself carries on.
+    expect(host.last("update").version).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Host refresh
+// ---------------------------------------------------------------------------
+
+describe("Host refresh", () => {
+  /** What the rebuilt Room is given: the same dependencies a reloaded tab would pass in. */
+  function deps(store: MemoryActionLogStore) {
+    return { engine: toyEngine, clock: { now: () => 1_000 }, random: seededRandom("after-reload"), store };
+  }
+
+  /** A mixed game of 2 local Seats and a bot, played `moves` local moves in. */
+  async function midGame(moves: number) {
+    const store = new MemoryActionLogStore();
+    const game = hotSeat(["Bob"], { store, roomCode: "ABC23" });
+    game.host.send({ t: "addBot", difficulty: "easy" });
+    game.host.send({ t: "startGame" });
+    for (let i = 0; i < moves; i++) {
+      const move = nextMove(game.clients)!;
+      game.clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: i });
+    }
+    await game.room.whenSaved();
+    return { store, ...game };
+  }
+
+  /** Reconnects every local Seat to a rebuilt Room, as the reloaded UIs would. */
+  function reconnect(room: Room<toy.GameState>, seatIds: string[]): Map<string, Client> {
+    const clients = new Map<string, Client>([[seatIds[0]!, new Client(room.hostConnection)]]);
+    for (const seat of seatIds.slice(1)) clients.set(seat, new Client(room.connectLocalSeat(seat)));
+    return clients;
+  }
+
+  it("rebuilds the Room from the saved log, giving every Seat the same view and version", async () => {
+    const before = await midGame(4);
+    const lastBefore = new Map([...before.clients].map(([seat, c]) => [seat, c.last("update")]));
+    expect(lastBefore.get(before.hostSeat)!.version).toBeGreaterThan(5);
+    for (const conn of before.clients.values()) conn.conn.close();
+
+    const room = Room.restore(deps(before.store), (await before.store.load("ABC23"))!);
+    expect(room.roomCode).toBe("ABC23");
+    const after = reconnect(room, before.seatIds);
+
+    for (const [seat, client] of after) {
+      // One fresh update each: the same version and view, with no events to animate.
+      const msgs = client.take();
+      expect(msgs).toEqual([{ ...lastBefore.get(seat)!, events: [] }]);
+      client.inbox.push(...msgs);
+    }
+  });
+
+  it("accepts the next action as if nothing had happened", async () => {
+    const before = await midGame(5);
+    const room = Room.restore(deps(before.store), (await before.store.load("ABC23"))!);
+    const after = reconnect(room, before.seatIds);
+
+    // The same move on the old Room and the rebuilt one gives the same result, bots included.
+    const move = nextMove(after)!;
+    expect(nextMove(before.clients)).toEqual(move);
+    before.clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: 99 });
+    after.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: 0 });
+    for (const [seat, client] of after) {
+      const expected = before.clients.get(seat)!.last("update");
+      expect(client.last("update")).toEqual(expected);
+      expect(client.of("actionRejected")).toEqual([]);
+    }
+
+    // And the rebuilt Room keeps logging where the old one left off.
+    await room.whenSaved();
+    const saved = (await before.store.load("ABC23"))!;
+    expect(saved.actions).toHaveLength(after.get(before.hostSeat)!.last("update").version - 1);
+  });
+
+  it("lets a bot move at once if the log stops on its turn", async () => {
+    const store = new MemoryActionLogStore();
+    const { room, host, hostSeat } = hotSeat([], { store, roomCode: "ABC23" });
+    host.send({ t: "addBot", difficulty: "easy" });
+    host.send({ t: "startGame" });
+    host.send({ t: "action", seat: hostSeat, action: { type: "DRAW_CARD", player: hostSeat }, clientSeq: 0 });
+    await room.whenSaved();
+    // The tab died after the Host's draw was saved but before the bot's reply was.
+    const record = (await store.load("ABC23"))!;
+    const cut = { ...record, actions: record.actions.slice(0, 1) };
+
+    const rebuilt = Room.restore(deps(new MemoryActionLogStore()), cut);
+    const after = new Client(rebuilt.hostConnection);
+    const update = after.last("update");
+    expect(update.version).toBeGreaterThan(2);
+    // The bot is done: the game waits on the Host (nextMove throws if nobody can act).
+    const move = nextMove(new Map([[hostSeat, after]]));
+    if (move) expect(move.seat).toBe(hostSeat);
+  });
+
+  it("refuses a record made with other card definitions", async () => {
+    const before = await midGame(1);
+    const record = (await before.store.load("ABC23"))!;
+    expect(() => Room.restore(deps(before.store), { ...record, cardDefsVersion: "toy-0" })).toThrow(/card definitions/);
+  });
+
+  it("refuses a record whose actions don't replay", async () => {
+    const before = await midGame(1);
+    const record = (await before.store.load("ABC23"))!;
+    const broken = { ...record, actions: [...record.actions, { type: "END_TURN" as const, player: before.hostSeat }] };
+    expect(() => Room.restore(deps(before.store), broken)).toThrow(`action ${broken.actions.length}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Replay download
+// ---------------------------------------------------------------------------
+
+describe("replay download", () => {
+  it("has no replay before the game starts", () => {
+    const { room } = hotSeat(["Bob"]);
+    expect(room.replayFile()).toBeNull();
+  });
+
+  it("gives a JSON file at game over that replays to the final state", () => {
+    const { room, host, clients, seatIds } = hotSeat(["Bob"], { roomCode: "ABC23" });
+    host.send({ t: "addBot", difficulty: "normal" });
+    host.send({ t: "startGame" });
+    for (let i = 0; nextMove(clients); i++) {
+      const move = nextMove(clients)!;
+      clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: i });
+    }
+    expect(viewOf(host.last("update")).phase).toBe("gameOver");
+
+    const file = room.replayFile()!;
+    expect(file.filename).toBe("here-to-slay-ABC23.json");
+    expect(file.mimeType).toBe("application/json");
+
+    // Replaying the downloaded file, with no store and other randomness, lands on the same final state.
+    const replayed = Room.restore(
+      { engine: toyEngine, clock: { now: () => 0 }, random: seededRandom("elsewhere") },
+      JSON.parse(file.contents) as RoomRecord,
+    );
+    const replayedHost = new Client(replayed.hostConnection);
+    const replayedBob = new Client(replayed.connectLocalSeat(seatIds[1]!));
+    expect(replayedHost.last("update")).toEqual({ ...host.last("update"), events: [] });
+    expect(replayedBob.last("update")).toEqual({ ...clients.get(seatIds[1]!)!.last("update"), events: [] });
   });
 });
