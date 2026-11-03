@@ -25,6 +25,33 @@ const engineDeterminism = {
   ],
 };
 
+/**
+ * The Room runs in the Host's tab but must stay testable without a browser
+ * (TECHNICAL_DESIGN.md §10.1): no DOM, no network, and only the protocol and
+ * zod from outside. Its clock and randomness are passed in.
+ */
+const roomIsolation = {
+  "no-restricted-imports": [
+    "error",
+    { patterns: [{ regex: "^(?!\\.{1,2}/|@here-to-slay/protocol$|zod$)", message: "The Room may import only the protocol, zod and its own files." }] },
+  ],
+  "no-restricted-globals": [
+    "error",
+    ...["window", "document", "navigator", "localStorage", "sessionStorage", "indexedDB", "WebSocket", "fetch", "XMLHttpRequest", "EventSource"].map(
+      (name) => ({ name, message: "The Room has no DOM or network dependencies." }),
+    ),
+  ],
+  "no-restricted-properties": [
+    "error",
+    { object: "Math", property: "random", message: "Use the Room's injected randomness." },
+    { object: "Date", property: "now", message: "Use the Room's injected clock." },
+  ],
+  "no-restricted-syntax": [
+    "error",
+    { selector: "NewExpression[callee.name='Date']", message: "Use the Room's injected clock." },
+  ],
+};
+
 export default tseslint.config(
   { ignores: ["**/node_modules/**", "**/dist/**", "**/coverage/**", "**/.wrangler/**"] },
   js.configs.recommended,
@@ -35,5 +62,9 @@ export default tseslint.config(
   {
     files: ["packages/engine/src/**/*.ts", "packages/toy-engine/src/**/*.ts"],
     rules: engineDeterminism,
+  },
+  {
+    files: ["packages/room/src/**/*.ts"],
+    rules: roomIsolation,
   },
 );

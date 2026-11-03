@@ -1,7 +1,14 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/protocol" },
-    { "path": "packages/toy-engine" }
+    {
+      "path": "packages/protocol"
+    },
+    {
+      "path": "packages/toy-engine"
+    },
+    {
+      "path": "packages/room"
+    }
   ]
 }
