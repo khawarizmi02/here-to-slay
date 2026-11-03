@@ -1,7 +1,7 @@
 import { RoomMsgSchema, type Action, type ClientMsg, type ConfigPatch, type RoomMsg } from "@here-to-slay/protocol";
 import * as toy from "@here-to-slay/toy-engine";
 import { describe, expect, it } from "vitest";
-import { Room, type GameConnection, type RoomEngine, type RoomOptions } from "../src/index.js";
+import { Room, type Bot, type GameConnection, type RoomEngine, type RoomOptions } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
 // Test harness: everything goes through the GameConnection seam.
@@ -21,6 +21,7 @@ const toyEngine: RoomEngine<toy.GameState> = {
     return toy.createGame({ players, seed, config: parsed });
   },
   applyAction: toy.applyAction,
+  getLegalActions: toy.getLegalActions,
   getPlayerView: (state, player) => toy.getPlayerView(state, player) as unknown as Record<string, unknown>,
   getPlayerEvents: toy.getPlayerEvents,
 };
@@ -546,5 +547,164 @@ describe("LocalConnection", () => {
 
     const again = new Client(room.connectLocalSeat(seatIds[1]!));
     expect(again.last("lobby").you).toEqual([seatIds[1]]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bot Seats
+// ---------------------------------------------------------------------------
+
+describe("bot Seats", () => {
+  it("lets the Host add a bot Seat in the lobby, shown to every Seat", () => {
+    const { host, clients, seatIds } = hotSeat(["Bob"]);
+    host.send({ t: "addBot", difficulty: "easy" });
+    const lobby = host.last("lobby");
+    expect(lobby.seats).toHaveLength(3);
+    expect(lobby.seats[2]).toEqual({ id: expect.any(String), name: expect.any(String), kind: "bot", connected: true });
+    expect(lobby.you).toEqual([seatIds[0]]);
+    expect(clients.get(seatIds[1]!)!.last("lobby").seats[2]!.kind).toBe("bot");
+  });
+
+  it("rejects addBot from a Seat that is not the Host, or once the game has started", () => {
+    const { host, clients, seatIds } = hotSeat(["Bob"]);
+    const bob = clients.get(seatIds[1]!)!;
+    host.take();
+    bob.take();
+    bob.send({ t: "addBot", difficulty: "easy" });
+    expect(bob.take()).toEqual([{ t: "error", message: expect.any(String) }]);
+    expect(host.take()).toEqual([]);
+
+    host.send({ t: "startGame" });
+    host.take();
+    host.send({ t: "addBot", difficulty: "normal" });
+    expect(host.take()).toEqual([{ t: "error", message: expect.any(String) }]);
+  });
+
+  it("counts bot Seats towards the 6-Seat limit", () => {
+    const { host } = hotSeat(["B", "C"]);
+    for (let i = 0; i < 3; i++) host.send({ t: "addBot", difficulty: "easy" });
+    host.take();
+    host.send({ t: "addBot", difficulty: "easy" });
+    expect(host.take()).toEqual([{ t: "error", message: expect.any(String) }]);
+  });
+
+  it("does not hand out a connection for a bot Seat", () => {
+    const { room, host } = hotSeat([]);
+    host.send({ t: "addBot", difficulty: "easy" });
+    const botSeat = host.last("lobby").seats[1]!.id;
+    expect(() => room.connectLocalSeat(botSeat)).toThrow();
+  });
+
+  it("calls a bot with only its own redacted view and its legal actions, and plays its choice", () => {
+    const calls: { seat: string; view: View; legal: Action[] }[] = [];
+    const bot = ({ id }: { id: string }): Bot => ({
+      chooseAction(view, legal) {
+        calls.push({ seat: id, view: view as unknown as View, legal });
+        return legal[0]!;
+      },
+    });
+    const { host, hostSeat } = hotSeat([], { bot });
+    host.send({ t: "addBot", difficulty: "easy" });
+    const botSeat = host.last("lobby").seats[1]!.id;
+    host.send({ t: "startGame" });
+    // It is the Host's turn: the bot is not asked yet.
+    expect(calls).toEqual([]);
+
+    host.send({ t: "action", seat: hostSeat, action: { type: "DRAW_CARD", player: hostSeat }, clientSeq: 0 });
+    expect(calls.length).toBeGreaterThan(0);
+    const first = calls[0]!;
+    expect(first.seat).toBe(botSeat);
+    expect(first.view.me).toBe(botSeat);
+    expect(first.view.activePlayer).toBe(botSeat);
+    // The bot sees its own hand and nothing of the Host's.
+    const hostHand = new Set(viewOf(host.of("update")[1]!).hand.map((c) => c.id));
+    expect(first.view.hand).toHaveLength(3);
+    for (const card of first.view.hand) expect(hostHand.has(card.id)).toBe(false);
+    expect(first.view.players.find((p) => p.id === hostSeat)).not.toHaveProperty("hand");
+    // Its legal actions are its own: draw, or play a non-challenge card from its hand.
+    expect(first.legal).toContainEqual({ type: "DRAW_CARD", player: botSeat });
+    for (const action of first.legal) expect(action.player).toBe(botSeat);
+
+    // The bot's choice was applied: the Host saw the bot's move without sending anything.
+    const botUpdate = host.of("update")[2]!;
+    expect(botUpdate.version).toBe(3);
+    expect(botUpdate.events[0]).toMatchObject({ player: botSeat });
+  });
+
+  it("tells the engine which players are bots", () => {
+    const seen: boolean[][] = [];
+    const engine: RoomEngine<toy.GameState> = {
+      ...toyEngine,
+      createGame: (opts) => {
+        seen.push(opts.players.map((p) => p.isBot));
+        return toyEngine.createGame(opts);
+      },
+    };
+    const { host } = hotSeat(["Bob"], { engine });
+    host.send({ t: "addBot", difficulty: "easy" });
+    host.send({ t: "startGame" });
+    expect(seen).toEqual([[false, false, true]]);
+  });
+
+  /** Plays the local Seats from their own views until game over; bots act inside the Room. Returns the local moves made. */
+  function playOut(clients: Map<string, Client>): number {
+    let moves = 0;
+    for (; moves < 1000; moves++) {
+      const move = nextMove(clients);
+      if (!move) return moves;
+      clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: moves });
+    }
+    throw new Error("the game did not finish");
+  }
+
+  it("plays a game of local and bot Seats to game over, the bots moving on their own", () => {
+    const { host, clients, seatIds } = hotSeat(["Bob"]);
+    host.send({ t: "addBot", difficulty: "easy" });
+    host.send({ t: "addBot", difficulty: "normal" });
+    const botSeats = host.last("lobby").seats.filter((s) => s.kind === "bot").map((s) => s.id);
+    host.send({ t: "startGame" });
+
+    const localMoves = playOut(clients);
+
+    // Every version reached the Host, one update each, with no errors or rejections.
+    const updates = host.of("update");
+    expect(updates.map((u) => u.version)).toEqual(updates.map((_, i) => i + 1));
+    expect(host.inbox.filter((m) => m.t !== "update" && m.t !== "lobby")).toEqual([]);
+    // The bots made moves nobody sent.
+    expect(updates.length - 1).toBeGreaterThan(localMoves);
+    const movers = new Set(updates.flatMap((u) => u.events.map((e) => (e as { player?: string }).player)));
+    for (const bot of botSeats) expect(movers).toContain(bot);
+
+    const final = viewOf(updates[updates.length - 1]!);
+    expect(final.phase).toBe("gameOver");
+    expect([...seatIds, ...botSeats]).toContain(final.winner);
+  });
+
+  it("finishes hundreds of seeded games against random bots without stalls or rejected bot actions", () => {
+    let botWins = 0;
+    for (let game = 0; game < 300; game++) {
+      const { host, clients } = hotSeat([], { random: seededRandom(`stress-${game}`) });
+      const bots = 1 + (game % 5);
+      for (let i = 0; i < bots; i++) host.send({ t: "addBot", difficulty: "easy" });
+      host.send({ t: "startGame" });
+      // A rejected or broken bot move is rethrown out of send; a stall makes nextMove throw.
+      playOut(clients);
+      const final = viewOf(host.last("update"));
+      expect(final.phase).toBe("gameOver");
+      expect(host.of("error")).toEqual([]);
+      if (final.winner !== final.me) botWins++;
+    }
+    expect(botWins).toBeGreaterThan(0);
+  });
+
+  it("reports a bot that picks an illegal action, without applying it", () => {
+    const cheat: Bot = { chooseAction: (_view, legal) => ({ ...legal[0]!, type: "END_TURN" }) };
+    const { host, hostSeat } = hotSeat([], { bot: () => cheat });
+    host.send({ t: "addBot", difficulty: "easy" });
+    host.send({ t: "startGame" });
+    expect(() =>
+      host.send({ t: "action", seat: hostSeat, action: { type: "DRAW_CARD", player: hostSeat }, clientSeq: 0 }),
+    ).toThrow("isn't legal");
+    expect(host.last("update").version).toBe(2);
   });
 });
