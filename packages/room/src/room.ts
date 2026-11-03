@@ -1,22 +1,27 @@
 import {
   ClientMsgSchema,
+  RelayToHostFrameSchema,
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
   type Action,
   type ClientMsg,
   type ConfigPatch,
   type GameEvent,
+  type HostToRelayFrame,
   type LobbySeat,
   type PlayerId,
   type PlayerViewPayload,
   type RoomCode,
   type RoomMsg,
   type SeatId,
+  type SeatKind,
+  type SeatToken,
 } from "@here-to-slay/protocol";
 import { z } from "zod";
 import { randomBot, type Bot, type BotDifficulty, type BotFactory } from "./bot.js";
 import { LocalConnection } from "./connection.js";
 import { RoomRecordSchema, type ActionLogStore, type RecordSeat, type RoomRecord } from "./record.js";
+import type { RelaySocket } from "./relay-connection.js";
 
 /**
  * The rules engine as the Room uses it (TECHNICAL_DESIGN.md §6.1). Seat ids
@@ -62,16 +67,61 @@ export interface RoomOptions<State> {
 export const MAX_SEATS = 6;
 export const MIN_SEATS_TO_START = 2;
 
+/**
+ * The Host's WebSocket to the relay (TECHNICAL_DESIGN.md §10.5). Replaced as
+ * a whole when the Host attaches a new one; a detached one is never used again.
+ */
+class HostRelay {
+  detached = false;
+
+  constructor(readonly socket: RelaySocket) {}
+
+  send(to: SeatToken, msg: RoomMsg): void {
+    if (this.detached) return;
+    // Always addressed to one seat token, never "all": every Seat's messages are its own (§9).
+    this.socket.send(JSON.stringify({ to, payload: msg } satisfies HostToRelayFrame));
+  }
+}
+
+/** A remote Seat's link to its friend, through one relay attachment. */
+class RemotePeer {
+  #closed = false;
+
+  constructor(
+    readonly relay: HostRelay,
+    readonly seatToken: SeatToken,
+  ) {}
+
+  get closed(): boolean {
+    return this.#closed || this.relay.detached;
+  }
+
+  close(): void {
+    this.#closed = true;
+  }
+
+  deliver(msg: RoomMsg): void {
+    if (!this.closed) this.relay.send(this.seatToken, msg);
+  }
+}
+
 interface Seat {
   id: SeatId;
   name: string;
-  kind: "local" | "bot";
+  kind: SeatKind;
   /** Always null for a bot Seat: the Room calls its bot directly. */
-  connection: LocalConnection | null;
+  connection: LocalConnection | RemotePeer | null;
   /** Set only for a bot Seat. */
   bot: Bot | null;
   difficulty: BotDifficulty | null;
+  /** Set only for a remote Seat: the relay stamps it on every message from that Seat's friend. */
+  seatToken: SeatToken | null;
 }
+
+type InboxItem =
+  | { from: "seat"; seat: Seat; connection: LocalConnection | RemotePeer; raw: unknown }
+  | { from: "relay"; relay: HostRelay; frame: string }
+  | { from: "relayClosed"; relay: HostRelay };
 
 interface Game<State> {
   state: State;
@@ -105,8 +155,11 @@ export class Room<State> {
   #config: ConfigPatch = {};
   #game: Game<State> | null = null;
 
+  /** The Host's current connection to the relay, if any. */
+  #relay: HostRelay | null = null;
+
   /** Incoming messages wait here so a UI that sends while handling a message doesn't re-enter the Room. */
-  readonly #inbox: { seat: Seat; connection: LocalConnection; raw: unknown }[] = [];
+  readonly #inbox: InboxItem[] = [];
   #processing = false;
   readonly #errors: unknown[] = [];
 
@@ -156,8 +209,10 @@ export class Room<State> {
       // No Seat can be added once the game has started, so the Seat counters needn't be restored.
       this.#seats.push(
         seat.kind === "bot"
-          ? { ...seat, connection: null, bot: this.#makeBot({ id: seat.id, difficulty: seat.difficulty }) }
-          : { ...seat, connection: null, bot: null, difficulty: null },
+          ? { ...seat, connection: null, bot: this.#makeBot({ id: seat.id, difficulty: seat.difficulty }), seatToken: null }
+          : seat.kind === "remote"
+            ? { ...seat, connection: null, bot: null, difficulty: null, seatToken: seat.seatToken ?? null }
+            : { ...seat, connection: null, bot: null, difficulty: null, seatToken: null },
       );
     }
 
@@ -182,7 +237,7 @@ export class Room<State> {
    */
   get hostConnection(): LocalConnection {
     const host = this.#seats.find((s) => s.id === this.#hostSeat)!;
-    return host.connection && !host.connection.closed ? host.connection : this.#connect(host);
+    return host.connection instanceof LocalConnection && !host.connection.closed ? host.connection : this.#connect(host);
   }
 
   /**
@@ -195,6 +250,28 @@ export class Room<State> {
     if (seat.kind !== "local") throw new Error(`Seat ${seatId} is not a local Seat`);
     if (seat.connection && !seat.connection.closed) throw new Error(`Seat ${seatId} is already connected`);
     return this.#connect(seat);
+  }
+
+  /**
+   * Connects the Room to the relay through the Host's WebSocket, so friends
+   * can join and play remote Seats (TECHNICAL_DESIGN.md §10.2). The Room
+   * trusts only the seat token the relay stamps on each message: it maps the
+   * token to a Seat, and a token without a Seat may only `joinRoom`.
+   * Attaching a new socket (after the old one dropped) replaces the old one.
+   */
+  attachRelay(socket: RelaySocket): void {
+    if (this.#relay) this.#detachRelay(this.#relay);
+    const relay = new HostRelay(socket);
+    this.#relay = relay;
+    socket.onMessage((frame) => {
+      this.#inbox.push({ from: "relay", relay, frame });
+      this.#run();
+    });
+    socket.onClose(() => {
+      this.#inbox.push({ from: "relayClosed", relay });
+      this.#run();
+    });
+    this.#rethrowErrors();
   }
 
   // -------------------------------------------------------------------------
@@ -216,16 +293,104 @@ export class Room<State> {
     return connection;
   }
 
-  #disconnect(seat: Seat, connection: LocalConnection): void {
+  #disconnect(seat: Seat, connection: LocalConnection | RemotePeer): void {
     if (seat.connection !== connection) return;
+    if (connection instanceof RemotePeer) connection.close();
     seat.connection = null;
     if (!this.#game) this.#broadcastLobby();
     this.#rethrowErrors();
   }
 
   #receive(seat: Seat, connection: LocalConnection, raw: unknown): void {
-    this.#inbox.push({ seat, connection, raw });
+    this.#inbox.push({ from: "seat", seat, connection, raw });
     this.#run();
+  }
+
+  #connectRemote(seat: Seat, relay: HostRelay): void {
+    seat.connection = new RemotePeer(relay, seat.seatToken!);
+    if (this.#game) this.#sendCurrentUpdate(seat);
+    else this.#broadcastLobby();
+  }
+
+  /** Every remote Seat loses its friend along with the relay. */
+  #detachRelay(relay: HostRelay): void {
+    relay.detached = true;
+    if (this.#relay === relay) this.#relay = null;
+    for (const seat of this.#seats) {
+      if (seat.connection instanceof RemotePeer && seat.connection.relay === relay) seat.connection = null;
+    }
+    if (!this.#game) this.#broadcastLobby();
+  }
+
+  /** One frame from the relay. Frames from a relay socket that has since been replaced are dropped. */
+  #relayFrame(relay: HostRelay, data: string): void {
+    if (relay !== this.#relay) return;
+    let json: unknown;
+    try {
+      json = JSON.parse(data);
+    } catch {
+      return;
+    }
+    // The relay is ours, so a frame it would never send is ignored rather than answered.
+    const parsed = RelayToHostFrameSchema.safeParse(json);
+    if (!parsed.success) return;
+    const frame = parsed.data;
+
+    switch (frame.kind) {
+      case "peerJoined": {
+        const seat = this.#remoteSeat(frame.seatToken);
+        if (seat) this.#connectRemote(seat, relay);
+        return;
+      }
+      case "peerLeft": {
+        const seat = this.#remoteSeat(frame.seatToken);
+        if (!seat) return;
+        if (!this.#game) {
+          // In the lobby a friend who leaves gives up their Seat, so it can't block the table.
+          // Coming back is just joining again: RelayConnection always sends joinRoom.
+          this.#seats.splice(this.#seats.indexOf(seat), 1);
+          this.#broadcastLobby();
+        } else if (seat.connection) {
+          this.#disconnect(seat, seat.connection);
+        }
+        return;
+      }
+      case "tick":
+        return;
+      case "msg": {
+        const seat = this.#remoteSeat(frame.from);
+        if (!seat) {
+          this.#stranger(relay, frame.from, frame.payload);
+          return;
+        }
+        if (!(seat.connection instanceof RemotePeer) || seat.connection.closed) this.#connectRemote(seat, relay);
+        this.#handle(seat, frame.payload);
+        return;
+      }
+    }
+  }
+
+  #remoteSeat(seatToken: SeatToken): Seat | undefined {
+    return this.#seats.find((s) => s.kind === "remote" && s.seatToken === seatToken);
+  }
+
+  /** A message from a seat token with no Seat yet: only `joinRoom` is accepted. */
+  #stranger(relay: HostRelay, seatToken: SeatToken, raw: unknown): void {
+    const reply = (msg: RoomMsg) => relay.send(seatToken, msg);
+    const parsed = ClientMsgSchema.safeParse(raw);
+    if (!parsed.success) {
+      reply(malformed(raw, parsed.error));
+      return;
+    }
+    const msg = parsed.data;
+    if (msg.t !== "joinRoom") {
+      const error = "Join the Room first";
+      reply(msg.t === "action" ? { t: "actionRejected", clientSeq: msg.clientSeq, error } : { t: "error", message: error });
+      return;
+    }
+    if (this.#game) return reply({ t: "error", message: "The game has already started" });
+    if (this.#seats.length >= MAX_SEATS) return reply({ t: "error", message: `The Room is full: it has at most ${MAX_SEATS} Seats` });
+    this.#connectRemote(this.#addSeat(msg.name, "remote", seatToken), relay);
   }
 
   /** Works through the inbox and the bots until nothing is left to do. */
@@ -240,10 +405,11 @@ export class Room<State> {
           if (this.#stepBot()) continue;
           break;
         }
-        // A message from a connection that has since been replaced or closed is dropped.
-        if (next.seat.connection !== next.connection) continue;
         try {
-          this.#handle(next.seat, next.raw);
+          if (next.from === "relay") this.#relayFrame(next.relay, next.frame);
+          else if (next.from === "relayClosed") this.#detachRelay(next.relay);
+          // A message from a connection that has since been replaced or closed is dropped.
+          else if (next.seat.connection === next.connection) this.#handle(next.seat, next.raw);
         } catch (e) {
           this.#errors.push(e);
         }
@@ -280,9 +446,7 @@ export class Room<State> {
   #handle(from: Seat, raw: unknown): void {
     const parsed = ClientMsgSchema.safeParse(raw);
     if (!parsed.success) {
-      const error = `Malformed message: ${z.prettifyError(parsed.error)}`;
-      const clientSeq = actionClientSeq(raw);
-      this.#send(from, clientSeq === undefined ? { t: "error", message: error } : { t: "actionRejected", clientSeq, error });
+      this.#send(from, malformed(raw, parsed.error));
       return;
     }
     const msg = parsed.data;
@@ -302,11 +466,12 @@ export class Room<State> {
         return;
       }
       case "resync":
-        if (this.#game) this.#sendCurrentUpdate(from);
-        else this.#sendLobby(from);
+        this.#sendCurrent(from);
         return;
       case "joinRoom":
-        this.#send(from, { t: "error", message: "This Seat is already in the Room" });
+        // A friend joining again (say, after a refresh) just gets the Seat's current state.
+        if (from.kind === "remote") this.#sendCurrent(from);
+        else this.#send(from, { t: "error", message: "This Seat is already in the Room" });
         return;
       case "chat":
         // Chat has no Room → Seat message yet.
@@ -439,7 +604,8 @@ export class Room<State> {
     return {
       filename: `here-to-slay-${this.roomCode}.json`,
       mimeType: "application/json",
-      contents: JSON.stringify(this.#recordOf(this.#game), null, 2),
+      // Without seat tokens: the file may be shared, and a token would let its reader act for that friend.
+      contents: JSON.stringify(withoutSeatTokens(this.#recordOf(this.#game)), null, 2),
     };
   }
 
@@ -448,10 +614,16 @@ export class Room<State> {
       roomCode: this.roomCode,
       seed: game.seed,
       config: game.config,
-      seats: this.#seats.map(
-        (s): RecordSeat =>
-          s.kind === "bot" ? { id: s.id, name: s.name, kind: "bot", difficulty: s.difficulty! } : { id: s.id, name: s.name, kind: "local" },
-      ),
+      seats: this.#seats.map((s): RecordSeat => {
+        switch (s.kind) {
+          case "bot":
+            return { id: s.id, name: s.name, kind: "bot", difficulty: s.difficulty! };
+          case "remote":
+            return { id: s.id, name: s.name, kind: "remote", seatToken: s.seatToken! };
+          case "local":
+            return { id: s.id, name: s.name, kind: "local" };
+        }
+      }),
       cardDefsVersion: this.#engine.cardDefsVersion,
       actions: game.actions,
     };
@@ -492,6 +664,11 @@ export class Room<State> {
     for (const [seat, msg] of outbox) this.#send(seat, msg);
   }
 
+  #sendCurrent(seat: Seat): void {
+    if (this.#game) this.#sendCurrentUpdate(seat);
+    else this.#sendLobby(seat);
+  }
+
   #sendCurrentUpdate(seat: Seat): void {
     const game = this.#game!;
     this.#send(seat, this.#update(game.state, game.version, seat, []));
@@ -516,8 +693,8 @@ export class Room<State> {
     this.#send(seat, { t: "lobby", roomCode: this.roomCode, seats, you: [seat.id] });
   }
 
-  #addSeat(name: string): Seat {
-    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind: "local", connection: null, bot: null, difficulty: null };
+  #addSeat(name: string, kind: "local" | "remote" = "local", seatToken: SeatToken | null = null): Seat {
+    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind, connection: null, bot: null, difficulty: null, seatToken };
     this.#seats.push(seat);
     return seat;
   }
@@ -525,7 +702,7 @@ export class Room<State> {
   #addBotSeat(difficulty: BotDifficulty): void {
     const id = `s${this.#nextSeatNumber++}`;
     const bot = this.#makeBot({ id, difficulty });
-    this.#seats.push({ id, name: `Bot ${++this.#botCount}`, kind: "bot", connection: null, bot, difficulty });
+    this.#seats.push({ id, name: `Bot ${++this.#botCount}`, kind: "bot", connection: null, bot, difficulty, seatToken: null });
   }
 
   // -------------------------------------------------------------------------
@@ -547,6 +724,17 @@ export class Room<State> {
     for (let i = 0; i < 16; i++) seed += this.#pick("0123456789abcdefghijklmnopqrstuvwxyz");
     return seed;
   }
+}
+
+function withoutSeatTokens(record: RoomRecord): RoomRecord {
+  return { ...record, seats: record.seats.map((s) => (s.kind === "remote" ? { id: s.id, name: s.name, kind: s.kind } : s)) };
+}
+
+/** The answer to a message that isn't a valid ClientMsg. */
+function malformed(raw: unknown, error: z.ZodError): RoomMsg {
+  const message = `Malformed message: ${z.prettifyError(error)}`;
+  const clientSeq = actionClientSeq(raw);
+  return clientSeq === undefined ? { t: "error", message } : { t: "actionRejected", clientSeq, error: message };
 }
 
 /** The clientSeq of something shaped like an action message, so a malformed action can still be answered with actionRejected. */
