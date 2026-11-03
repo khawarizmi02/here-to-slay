@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "here-to-slay-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RoomRelay" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomRelay"] }]
+}

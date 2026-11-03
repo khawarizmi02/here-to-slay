@@ -1,0 +1,19 @@
+{
+  "name": "@here-to-slay/relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types --include-runtime false"
+  },
+  "dependencies": {
+    "@here-to-slay/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.5.0",
+    "@cloudflare/workers-types": "^5.20261102.1",
+    "wrangler": "^4.156.2"
+  }
+}
