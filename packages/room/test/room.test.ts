@@ -2,7 +2,7 @@ import type { Action, ConfigPatch } from "@here-to-slay/protocol";
 import * as toy from "@here-to-slay/toy-engine";
 import { describe, expect, it } from "vitest";
 import { MemoryActionLogStore, Room, type Bot, type RoomEngine, type RoomRecord } from "../src/index.js";
-import { Client, hotSeat, makeRoom, nextMove, seededRandom, toyEngine, viewOf, type Update, type View } from "./harness.js";
+import { Client, hotSeat, makeRoom, nextMove, sendMove, seededRandom, toyEngine, viewOf, type Update, type View } from "./harness.js";
 
 // ---------------------------------------------------------------------------
 // Lobby
@@ -144,10 +144,12 @@ describe("playing", () => {
     host.send({ t: "startGame" });
 
     let expectedVersion = 1;
-    for (const client of clients.values()) {
+    const lastUpdates = new Map<string, Update>();
+    for (const [seat, client] of clients) {
       const updates = client.of("update");
       expect(updates).toHaveLength(1);
       expect(updates[0]!.version).toBe(1);
+      lastUpdates.set(seat, updates[0]!);
     }
 
     let clientSeq = 0;
@@ -155,19 +157,25 @@ describe("playing", () => {
       const move = nextMove(clients);
       if (!move) break;
       for (const client of clients.values()) client.take();
-      clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: clientSeq++ });
-      expectedVersion++;
+      sendMove(clients, move, clientSeq++);
 
-      // Exactly one update per Seat, one version higher, filtered for that Seat.
+      // Every Seat gets the same run of updates, one version apart, each filtered for that Seat.
+      // A move may bring several: the Room passes for local Seats with nothing to respond with.
+      const versions = new Set<string>();
+      const advanced = clients.get(seatIds[0]!)!.of("update").length;
       for (const [seat, client] of clients) {
-        const msgs = client.take();
-        expect(msgs, `seat ${seat} at step ${step}`).toHaveLength(1);
-        const update = msgs[0] as Update;
-        expect(update.t).toBe("update");
-        expect(update.version).toBe(expectedVersion);
-        expect(viewOf(update).me).toBe(seat);
-        client.inbox.push(update);
+        const updates = client.of("update");
+        expect(client.inbox.filter((m) => m.t !== "update" && m.t !== "passDevice" && m.t !== "respond"), `seat ${seat} at step ${step}`).toEqual([]);
+        expect(updates.map((u) => u.version)).toEqual(updates.map((_, i) => expectedVersion + 1 + i));
+        for (const update of updates) expect(viewOf(update).me).toBe(seat);
+        versions.add(JSON.stringify(updates.map((u) => u.version)));
+        if (updates.length === 0) client.inbox.unshift(lastUpdates.get(seat)!);
+        else lastUpdates.set(seat, updates[updates.length - 1]!);
       }
+      expect(versions.size).toBe(1);
+      // Only confirming the device changes nothing.
+      expect(advanced === 0).toBe("confirm" in move);
+      expectedVersion += advanced;
     }
 
     const final = seatIds.map((seat) => viewOf(clients.get(seat)!.last("update")));
@@ -524,7 +532,7 @@ describe("bot Seats", () => {
     for (; moves < 1000; moves++) {
       const move = nextMove(clients);
       if (!move) return moves;
-      clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: moves });
+      sendMove(clients, move, moves);
     }
     throw new Error("the game did not finish");
   }
@@ -605,7 +613,7 @@ describe("action log", () => {
         { id: hostSeat, name: "Alice", kind: "local" },
         { id: seatIds[1], name: "Bob", kind: "local" },
       ],
-      cardDefsVersion: "toy-1",
+      cardDefsVersion: "toy-2",
       actions: [],
     });
 
@@ -654,20 +662,23 @@ describe("action log", () => {
 // ---------------------------------------------------------------------------
 
 describe("Host refresh", () => {
+  /** A bot that plays the same in the old Room and the rebuilt one, whatever their randomness. */
+  const firstLegal = () => ({ chooseAction: (_view: unknown, legal: Action[]) => legal[0]! });
+
   /** What the rebuilt Room is given: the same dependencies a reloaded tab would pass in. */
   function deps(store: MemoryActionLogStore) {
-    return { engine: toyEngine, clock: { now: () => 1_000 }, random: seededRandom("after-reload"), store };
+    return { engine: toyEngine, clock: { now: () => 1_000 }, random: seededRandom("after-reload"), store, bot: firstLegal };
   }
 
   /** A mixed game of 2 local Seats and a bot, played `moves` local moves in. */
   async function midGame(moves: number) {
     const store = new MemoryActionLogStore();
-    const game = hotSeat(["Bob"], { store, roomCode: "ABC23" });
+    const game = hotSeat(["Bob"], { store, roomCode: "ABC23", bot: firstLegal });
     game.host.send({ t: "addBot", difficulty: "easy" });
     game.host.send({ t: "startGame" });
     for (let i = 0; i < moves; i++) {
       const move = nextMove(game.clients)!;
-      game.clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: i });
+      sendMove(game.clients, move, i);
     }
     await game.room.whenSaved();
     return { store, ...game };
@@ -706,8 +717,8 @@ describe("Host refresh", () => {
     // The same move on the old Room and the rebuilt one gives the same result, bots included.
     const move = nextMove(after)!;
     expect(nextMove(before.clients)).toEqual(move);
-    before.clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: 99 });
-    after.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: 0 });
+    sendMove(before.clients, move, 99);
+    sendMove(after, move, 0);
     for (const [seat, client] of after) {
       const expected = before.clients.get(seat)!.last("update");
       expect(client.last("update")).toEqual(expected);
@@ -770,7 +781,7 @@ describe("replay download", () => {
     host.send({ t: "startGame" });
     for (let i = 0; nextMove(clients); i++) {
       const move = nextMove(clients)!;
-      clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq: i });
+      sendMove(clients, move, i);
     }
     expect(viewOf(host.last("update")).phase).toBe("gameOver");
 

@@ -882,7 +882,8 @@ type ClientMsg =
   | { t: "startGame" }                                    // Host only
   | { t: "action"; seat: SeatId; action: Action; clientSeq: number }
   | { t: "resync" }
-  | { t: "chat"; text: string };
+  | { t: "chat"; text: string }
+  | { t: "confirmPassDevice"; seat: SeatId };            // local Seats: "I have the device"
 ```
 
 Room to Seat:
@@ -893,10 +894,14 @@ type RoomMsg =
   | { t: "update"; version: number; events: GameEvent[]; view: PlayerView }
   | { t: "actionRejected"; clientSeq: number; error: string }
   | { t: "hostAway" }                // the relay sends this when the Host disconnects
-  | { t: "error"; message: string };
+  | { t: "error"; message: string }
+  | { t: "passDevice"; seat: SeatId; name: string }      // local Seat asked to respond (§7.4)
+  | { t: "respond"; seat: SeatId; actions: Action[] };   // its options, once it confirms
 ```
 
 **One update message.** Every state change increments `version`. The Room sends each Seat one `update`. Its `events` are filtered for that Seat (Section 9) and describe the change from `version - 1` to `version`. Its `view` is the resulting state. The client animates the events and then applies the view. If the client sees a version gap (it missed messages), it skips the animations and applies the view directly. No separate resync is needed, but a client may send `resync` after it reconnects.
+
+**Response prompts for local Seats.** The Room passes, with an ordinary logged `PASS`, for a local Seat that is asked to respond but holds no usable card. It asks the others one at a time, in turn order after the active player: first `passDevice`, then, after `confirmPassDevice`, `respond` with the Seat's options. It rejects a local Seat's response before then. While a prompt stands, the Room sends it again after every `update`, so a UI knows a prompt is current if one follows the latest update.
 
 **Identity.** The Room ignores any identity claim in a remote message. It uses the `from` token the relay stamps on the message (Section 10.5) to find that player's Seat, sets `action.player` from that Seat, and rejects an action whose `seat` isn't owned by that token. A `local` Seat's actions come from `LocalConnection`, and the UI picks the Seat according to whose turn it is or whose prompt is showing.
 

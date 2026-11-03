@@ -2,7 +2,7 @@ import type { ClientMsg } from "@here-to-slay/protocol";
 import { describe, expect, it } from "vitest";
 import { JoinError, MemoryActionLogStore, RelayConnection, Room, relaySocket, type WebSocketLike } from "../src/index.js";
 import { FakeRelay, settle } from "./fake-relay.js";
-import { Client, makeRoom, nextMove, toyEngine, viewOf, type Update } from "./harness.js";
+import { Client, makeRoom, nextMove, sendMove, toyEngine, viewOf, type Update } from "./harness.js";
 
 /** A Host whose Room is attached to a fake relay, still in the lobby. */
 function hostedRoom(overrides: Parameters<typeof makeRoom>[0] = {}) {
@@ -163,7 +163,7 @@ async function playToGameOver(clients: Map<string, Client>): Promise<void> {
     await settle();
     const move = nextMove(clients);
     if (!move) return;
-    clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq });
+    sendMove(clients, move, clientSeq);
     if (clientSeq > 500) throw new Error("the game did not end");
   }
 }
@@ -206,7 +206,7 @@ describe("playing with remote Seats", () => {
     // Play until it is Bob's turn.
     for (let clientSeq = 0; viewOf(bob.client.last("update")).activePlayer !== bob.seat || viewOf(bob.client.last("update")).phase !== "action"; clientSeq++) {
       const move = nextMove(clients)!;
-      clients.get(move.seat)!.send({ t: "action", seat: move.seat, action: move.action, clientSeq });
+      sendMove(clients, move, clientSeq);
       await settle();
     }
     bob.client.send({ t: "action", seat: bob.seat, action: { type: "DRAW_CARD", player: hostSeat }, clientSeq: 99 });

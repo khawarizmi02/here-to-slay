@@ -11,10 +11,11 @@ import { createRoom, upgrade } from "./client.js";
  */
 
 const toyEngine: RoomEngine<toy.GameState> = {
-  cardDefsVersion: "toy-1",
+  cardDefsVersion: "toy-2",
   createGame: ({ players, seed }) => toy.createGame({ players, seed }),
   applyAction: toy.applyAction,
   getLegalActions: toy.getLegalActions,
+  getActivePlayer: (state) => state.activePlayer,
   getPlayerView: (state, player) => toy.getPlayerView(state, player) as unknown as Record<string, unknown>,
   getPlayerEvents: toy.getPlayerEvents,
 };
@@ -55,6 +56,15 @@ class Tab {
   view(): toy.PlayerView | undefined {
     return this.last("update")?.view as unknown as toy.PlayerView | undefined;
   }
+  /** The response prompt the Room sent after the latest update, if it still stands. */
+  prompt(): RoomMsg["t"] | undefined {
+    let prompt: RoomMsg["t"] | undefined;
+    for (const msg of this.inbox) {
+      if (msg.t === "update") prompt = undefined;
+      else if (msg.t === "passDevice" || msg.t === "respond") prompt = msg.t;
+    }
+    return prompt;
+  }
 }
 
 /** Waits until `check` holds, as messages cross the relay. */
@@ -66,14 +76,23 @@ async function until(check: () => boolean, what: string, timeoutMs = 3000): Prom
   }
 }
 
-/** The move a player's UI would make from its own view, if it is their move. */
-function moveFor(seat: string, view: toy.PlayerView): Action | undefined {
+/**
+ * The move a player's UI would make from its own view, if it is their move.
+ * A local Seat responds only when the Room asks it to, after confirming it has the device.
+ */
+function moveFor(seat: string, tab: Tab, local: boolean): Action | "confirm" | undefined {
+  const view = tab.view()!;
   const player = "ignored-by-room";
   if (view.phase === "action" && view.activePlayer === seat) {
-    const card = view.hand.find((c) => c.def !== "challenge");
+    const card = view.hand.find((c) => !toy.TOY_RESPONSE_CARDS.includes(c.def));
     return card ? { type: "PLAY_HERO", player, card: card.id } : { type: "DRAW_CARD", player };
   }
-  if (view.phase === "responseWindow" && view.responseWindow?.awaiting.includes(seat)) return { type: "PASS", player };
+  if (view.phase === "responseWindow" && view.responseWindow?.awaiting.includes(seat)) {
+    if (!local) return { type: "PASS", player };
+    const prompt = tab.prompt();
+    if (prompt === "passDevice") return "confirm";
+    return prompt === "respond" ? { type: "PASS", player } : undefined;
+  }
   if (view.phase === "decision" && view.pendingDecision && "id" in view.pendingDecision) {
     const decision = view.pendingDecision;
     return { type: "RESOLVE_DECISION", player, decisionId: decision.id, answer: { selected: [decision.options[0]!.id] } };
@@ -94,7 +113,7 @@ describe("a Room over the real relay", () => {
     const bob = new Tab(await RelayConnection.join({ dialer, roomCode: roomCode.toLowerCase(), name: "Bob" }));
     await until(() => host.last("lobby")?.seats.length === 3, "Bob in the Host's lobby");
     const cara = new Tab(await RelayConnection.join({ dialer, roomCode, name: "Cara" }));
-    await until(() => bob.last("lobby")?.seats.length === 4, "Cara in Bob's lobby");
+    await until(() => [bob, cara].every((t) => t.last("lobby")?.seats.length === 4), "Cara in every friend's lobby");
     expect(bob.last("lobby")!.seats.map((s) => [s.name, s.kind])).toEqual([
       ["Alice", "local"],
       ["Bot 1", "bot"],
@@ -115,8 +134,14 @@ describe("a Room over the real relay", () => {
       const version = host.last("update")!.version;
       // Every tab must have caught up before anyone picks a move from their view.
       await until(() => [...tabs.values()].every((t) => t.last("update")!.version === version), `everyone at version ${version}`);
-      const [seat, tab] = [...tabs].find(([seat, tab]) => moveFor(seat, tab.view()!))!;
-      tab.conn.send({ t: "action", seat, action: moveFor(seat, tab.view()!)!, clientSeq });
+      const [seat, tab] = [...tabs].find(([seat, tab]) => moveFor(seat, tab, tab === host))!;
+      const move = moveFor(seat, tab, tab === host)!;
+      if (move === "confirm") {
+        tab.conn.send({ t: "confirmPassDevice", seat });
+        await until(() => tab.prompt() === "respond", "the response options");
+        continue;
+      }
+      tab.conn.send({ t: "action", seat, action: move, clientSeq });
       await until(() => host.last("update")!.version > version, `the move after version ${version}`);
     }
 

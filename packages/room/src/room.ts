@@ -34,8 +34,15 @@ export interface RoomEngine<State> {
   createGame(opts: { players: { id: PlayerId; name: string; isBot: boolean }[]; seed: string; config: ConfigPatch }): State;
   /** On `ok: false` the state must be left unchanged. */
   applyAction(state: State, action: Action): { ok: boolean; state: State; error?: string; events: GameEvent[] };
-  /** Every action `player` may take now, including answers to its pending decision. Bots choose from these. */
+  /**
+   * Every action `player` may take now, including answers to its pending
+   * decision. Bots choose from these. A player whose legal actions include
+   * `PASS` is being asked to respond in a response window, and every other
+   * action it has then is a response (a Challenge or Modifier card).
+   */
   getLegalActions(state: State, player: PlayerId): Action[];
+  /** Whose turn it is. Local Seats are asked to respond in turn order, starting after this player. */
+  getActivePlayer(state: State): PlayerId;
   getPlayerView(state: State, player: PlayerId): PlayerViewPayload;
   getPlayerEvents(events: readonly GameEvent[], player: PlayerId): GameEvent[];
 }
@@ -123,6 +130,15 @@ type InboxItem =
   | { from: "relay"; relay: HostRelay; frame: string }
   | { from: "relayClosed"; relay: HostRelay };
 
+/** The local Seat the Room is asking to respond (TECHNICAL_DESIGN.md §7.4). */
+interface Asking {
+  seat: Seat;
+  /** Whether the player confirmed they have the device, so may see their options. */
+  confirmed: boolean;
+  /** The game version the Seat's prompt was last sent for. */
+  version: number;
+}
+
 interface Game<State> {
   state: State;
   version: number;
@@ -154,6 +170,7 @@ export class Room<State> {
   #botCount = 0;
   #config: ConfigPatch = {};
   #game: Game<State> | null = null;
+  #asking: Asking | null = null;
 
   /** The Host's current connection to the relay, if any. */
   #relay: HostRelay | null = null;
@@ -286,6 +303,7 @@ export class Room<State> {
     seat.connection = connection;
     if (this.#game) {
       this.#sendCurrentUpdate(seat);
+      if (this.#asking?.seat === seat) this.#sendPrompt(this.#asking);
     } else {
       this.#broadcastLobby();
     }
@@ -402,7 +420,10 @@ export class Room<State> {
       for (;;) {
         const next = this.#inbox.shift();
         if (!next) {
-          if (this.#stepBot()) continue;
+          if (this.#stepBot() || this.#passForLocalSeat()) continue;
+          // Prompting may make a UI send something, which waits in the inbox.
+          this.#prompt();
+          if (this.#inbox.length > 0) continue;
           break;
         }
         try {
@@ -476,6 +497,11 @@ export class Room<State> {
       case "chat":
         // Chat has no Room → Seat message yet.
         return;
+      case "confirmPassDevice": {
+        const error = this.#confirmPassDevice(from, msg.seat);
+        if (error) this.#send(from, { t: "error", message: error });
+        return;
+      }
     }
   }
 
@@ -526,8 +552,109 @@ export class Room<State> {
     const game = this.#game;
     if (!game) return "The game has not started";
 
+    // Only a Seat the Room would interrupt waits to be asked; one that can only pass may pass by itself.
+    const legal = from.kind === "local" ? this.#engine.getLegalActions(game.state, from.id) : [];
+    if (isResponding(legal) && hasResponseOptions(legal)) {
+      this.#prompt();
+      if (this.#asking?.seat !== from) return "Wait until the Room asks you to respond";
+      if (!this.#asking.confirmed) return "Confirm you have the device before responding";
+    }
+
     // The Seat, not the message, decides who is acting.
     return this.#apply(game, { ...msg.action, player: from.id });
+  }
+
+  // -------------------------------------------------------------------------
+  // Response windows for local Seats (TECHNICAL_DESIGN.md §7.4, §7.5)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Passes for the first local Seat, in Seat order, that is asked to respond
+   * but holds no usable card, so it is never interrupted. Returns whether it
+   * passed for one. The pass is an ordinary logged action, with no delay.
+   */
+  #passForLocalSeat(): boolean {
+    const game = this.#game;
+    if (!game) return false;
+    try {
+      for (const seat of this.#seats) {
+        if (seat.kind !== "local") continue;
+        const legal = this.#engine.getLegalActions(game.state, seat.id);
+        if (!isResponding(legal) || hasResponseOptions(legal)) continue;
+        const error = this.#apply(game, { type: "PASS", player: seat.id });
+        if (error) throw new Error(`Passing for ${seat.name} was rejected: ${error}`);
+        return true;
+      }
+    } catch (e) {
+      this.#errors.push(e);
+    }
+    return false;
+  }
+
+  /**
+   * The local Seat to ask now: the first, in turn order after the active
+   * player, that is asked to respond and holds a usable card. Local Seats
+   * are asked one at a time; the engine decides who has yet to answer, so
+   * after a response reopens the window, a Seat that passed is asked again.
+   */
+  #localResponder(game: Game<State>): Seat | null {
+    const active = this.#seats.findIndex((s) => s.id === this.#engine.getActivePlayer(game.state));
+    const order = [...this.#seats.slice(active + 1), ...this.#seats.slice(0, active + 1)];
+    for (const seat of order) {
+      if (seat.kind !== "local") continue;
+      const legal = this.#engine.getLegalActions(game.state, seat.id);
+      if (isResponding(legal) && hasResponseOptions(legal)) return seat;
+    }
+    return null;
+  }
+
+  /**
+   * Brings the response prompt up to date. A newly asked Seat starts at the
+   * pass-device step. The asked Seat gets its prompt again after every
+   * update, so a UI knows a prompt still stands if one follows the latest
+   * update. There is no deadline: a local Seat is never timed out.
+   */
+  #prompt(): void {
+    const game = this.#game;
+    let seat: Seat | null = null;
+    try {
+      seat = game ? this.#localResponder(game) : null;
+    } catch (e) {
+      this.#errors.push(e);
+    }
+    if (!game || !seat) {
+      this.#asking = null;
+      return;
+    }
+    if (this.#asking?.seat !== seat) this.#asking = { seat, confirmed: false, version: -1 };
+    if (this.#asking.version !== game.version) this.#sendPrompt(this.#asking);
+  }
+
+  #sendPrompt(asking: Asking): void {
+    const game = this.#game!;
+    asking.version = game.version;
+    const { seat } = asking;
+    if (!asking.confirmed) {
+      this.#send(seat, { t: "passDevice", seat: seat.id, name: seat.name });
+      return;
+    }
+    try {
+      this.#send(seat, { t: "respond", seat: seat.id, actions: copy(this.#engine.getLegalActions(game.state, seat.id)) });
+    } catch (e) {
+      this.#errors.push(e);
+    }
+  }
+
+  /** Returns an error message, or undefined on success. */
+  #confirmPassDevice(from: Seat, seatId: SeatId): string | undefined {
+    if (seatId !== from.id) return `You don't control Seat ${seatId}`;
+    if (from.kind !== "local") return "Only a local Seat passes the device";
+    this.#prompt();
+    const asking = this.#asking;
+    if (asking?.seat !== from) return "The Room is not asking you to respond";
+    asking.confirmed = true;
+    this.#sendPrompt(asking);
+    return undefined;
   }
 
   /** Applies an action and commits the result. Returns an error message, or undefined on success. */
@@ -662,6 +789,24 @@ export class Room<State> {
     this.#game = next;
     this.#save(next);
     for (const [seat, msg] of outbox) this.#send(seat, msg);
+    this.#endAnsweredPrompt(next);
+  }
+
+  /**
+   * Once the asked Seat has answered, or its window has closed, its prompt
+   * is over: if it is asked again, even in the same drain, it starts at the
+   * pass-device step. A Seat still asked (say, after its own Modifier
+   * reopened the window) keeps the device.
+   */
+  #endAnsweredPrompt(game: Game<State>): void {
+    const asking = this.#asking;
+    if (!asking) return;
+    try {
+      if (isResponding(this.#engine.getLegalActions(game.state, asking.seat.id))) return;
+    } catch (e) {
+      this.#errors.push(e);
+    }
+    this.#asking = null;
   }
 
   #sendCurrent(seat: Seat): void {
@@ -724,6 +869,16 @@ export class Room<State> {
     for (let i = 0; i < 16; i++) seed += this.#pick("0123456789abcdefghijklmnopqrstuvwxyz");
     return seed;
   }
+}
+
+/** Whether a player with these legal actions is being asked to respond in a response window. */
+function isResponding(legal: readonly Action[]): boolean {
+  return legal.some((a) => a.type === "PASS");
+}
+
+/** Whether a responding player holds a usable card: anything to do but pass. */
+function hasResponseOptions(legal: readonly Action[]): boolean {
+  return legal.some((a) => a.type !== "PASS");
 }
 
 function withoutSeatTokens(record: RoomRecord): RoomRecord {

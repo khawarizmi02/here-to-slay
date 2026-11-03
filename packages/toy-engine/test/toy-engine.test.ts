@@ -235,6 +235,59 @@ describe("hidden information", () => {
   });
 });
 
+describe("modifiers", () => {
+  // p1: point_2, point_1; p2: modifier, point_1; p3: modifier, challenge.
+  const deckOrder = ["point_2", "point_1", "modifier", "point_1", "modifier", "challenge", "point_1", "point_1"] as const;
+  const threePlayers = fourPlayers.slice(0, 3);
+  const start = () => createGame({ players: threePlayers, seed: "mod", config: { handSize: 2 }, deckOrder: [...deckOrder] });
+
+  it("can be played from hand only in a response window, for +1", () => {
+    const state = start();
+    expect(getLegalActions(state, "p1").map((a) => a.type)).not.toContain("PLAY_MODIFIER");
+    const { state: open } = run(state, [{ type: "PLAY_HERO", player: "p1", card: "point_2#0" }]);
+    expect(getLegalActions(open, "p2")).toEqual([
+      { type: "PASS", player: "p2" },
+      { type: "PLAY_MODIFIER", player: "p2", card: "modifier#0", value: 1 },
+    ]);
+    for (const action of getLegalActions(open, "p3")) expect(ActionSchema.safeParse(action).success).toBe(true);
+  });
+
+  it("reopens the window to everyone, including players who already passed", () => {
+    let r = run(start(), [{ type: "PLAY_HERO", player: "p1", card: "point_2#0" }, { type: "PASS", player: "p2" }]);
+    expect(r.state.responseWindow!.awaiting).toEqual(["p3"]);
+    r = run(r.state, [{ type: "PLAY_MODIFIER", player: "p3", card: "modifier#1", value: 1 }]);
+    expect(r.events).toEqual([
+      { type: "MODIFIED", player: "p3", card: { id: "modifier#1", def: "modifier" }, target: { id: "point_2#0", def: "point_2" }, bonus: 1, awaiting: ["p2", "p3"] },
+    ]);
+    expect(r.state.phase).toBe("responseWindow");
+    expect(r.state.responseWindow!.awaiting).toEqual(["p2", "p3"]);
+    expect(r.state.discard).toContainEqual({ id: "modifier#1", def: "modifier" });
+  });
+
+  it("adds a point per modifier to the card's score once everyone passes", () => {
+    const { state } = run(start(), [
+      { type: "PLAY_HERO", player: "p1", card: "point_2#0" },
+      { type: "PLAY_MODIFIER", player: "p2", card: "modifier#0", value: 1 },
+      { type: "PLAY_MODIFIER", player: "p3", card: "modifier#1", value: 1 },
+      { type: "PASS", player: "p2" },
+      { type: "PASS", player: "p3" },
+    ]);
+    expect(state.players[0]!.score).toBe(4);
+    expect(totalCards(state)).toBe(deckOrder.length);
+  });
+
+  it("is not offered against a wish, which it can't change", () => {
+    const state = createGame({ players: twoPlayers, seed: "wish", config: { handSize: 2 }, deckOrder: ["wish", "point_1", "modifier", "challenge", "point_1"] });
+    const { state: open } = run(state, [{ type: "PLAY_HERO", player: "p1", card: "wish#0" }]);
+    expect(getLegalActions(open, "p2").map((a) => a.type)).toEqual(["PASS", "PLAY_CHALLENGE"]);
+  });
+
+  it("rejects a modifier for any value but +1", () => {
+    const { state } = run(start(), [{ type: "PLAY_HERO", player: "p1", card: "point_2#0" }]);
+    expect(applyAction(state, { type: "PLAY_MODIFIER", player: "p2", card: "modifier#0", value: 5 }).ok).toBe(false);
+  });
+});
+
 describe("createGame", () => {
   it("rejects too few or too many players and duplicate ids", () => {
     expect(() => createGame({ players: twoPlayers.slice(0, 1), seed: "x" })).toThrow();

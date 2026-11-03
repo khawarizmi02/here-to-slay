@@ -35,6 +35,11 @@ export const ClientMsgSchema = z.discriminatedUnion("t", [
   }),
   z.strictObject({ t: z.literal("resync") }),
   z.strictObject({ t: z.literal("chat"), text: z.string().trim().min(1).max(500) }),
+  /**
+   * Local Seats only: the player the Room asked to respond (`passDevice`)
+   * has the device and is ready to see their response options.
+   */
+  z.strictObject({ t: z.literal("confirmPassDevice"), seat: SeatIdSchema }),
 ]);
 export type ClientMsg = z.infer<typeof ClientMsgSchema>;
 export type ClientMsgType = ClientMsg["t"];
@@ -84,6 +89,13 @@ export const RoomMsgSchema = z.discriminatedUnion("t", [
   }),
   z.strictObject({ t: z.literal("hostAway") }),
   z.strictObject({ t: z.literal("error"), message: z.string().min(1) }),
+  /**
+   * To a local Seat the Room interrupts in a response window: show "Pass the
+   * device to <name>", with no countdown, until the player sends `confirmPassDevice`.
+   */
+  z.strictObject({ t: z.literal("passDevice"), seat: SeatIdSchema, name: PlayerNameSchema }),
+  /** To a local Seat that confirmed it has the device: its response options, PASS among them. */
+  z.strictObject({ t: z.literal("respond"), seat: SeatIdSchema, actions: z.array(ActionSchema).min(1).max(64) }),
 ]);
 export type RoomMsg = z.infer<typeof RoomMsgSchema>;
 export type RoomMsgType = RoomMsg["t"];
