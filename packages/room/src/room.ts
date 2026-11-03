@@ -14,6 +14,7 @@ import {
   type SeatId,
 } from "@here-to-slay/protocol";
 import { z } from "zod";
+import { randomBot, type Bot, type BotDifficulty, type BotFactory } from "./bot.js";
 import { LocalConnection } from "./connection.js";
 
 /**
@@ -25,6 +26,8 @@ export interface RoomEngine<State> {
   createGame(opts: { players: { id: PlayerId; name: string; isBot: boolean }[]; seed: string; config: ConfigPatch }): State;
   /** On `ok: false` the state must be left unchanged. */
   applyAction(state: State, action: Action): { ok: boolean; state: State; error?: string; events: GameEvent[] };
+  /** Every action `player` may take now, including answers to its pending decision. Bots choose from these. */
+  getLegalActions(state: State, player: PlayerId): Action[];
   getPlayerView(state: State, player: PlayerId): PlayerViewPayload;
   getPlayerEvents(events: readonly GameEvent[], player: PlayerId): GameEvent[];
 }
@@ -44,6 +47,8 @@ export interface RoomOptions<State> {
   hostName: string;
   /** The relay's Room Code. Without one, the Room makes one up from `random`. */
   roomCode?: RoomCode;
+  /** Makes the bot for each bot Seat. Without one, every bot picks a random legal action using `random`. */
+  bot?: BotFactory;
 }
 
 export const MAX_SEATS = 6;
@@ -52,8 +57,11 @@ export const MIN_SEATS_TO_START = 2;
 interface Seat {
   id: SeatId;
   name: string;
-  kind: "local";
+  kind: "local" | "bot";
+  /** Always null for a bot Seat: the Room calls its bot directly. */
   connection: LocalConnection | null;
+  /** Set only for a bot Seat. */
+  bot: Bot | null;
 }
 
 type Game<State> = { state: State; version: number };
@@ -68,9 +76,11 @@ export class Room<State> {
 
   readonly #engine: RoomEngine<State>;
   readonly #random: () => number;
+  readonly #makeBot: BotFactory;
   readonly #seats: Seat[] = [];
   readonly #hostSeat: SeatId;
   #nextSeatNumber = 1;
+  #botCount = 0;
   #config: ConfigPatch = {};
   #game: Game<State> | null = null;
 
@@ -82,6 +92,7 @@ export class Room<State> {
   constructor(opts: RoomOptions<State>) {
     this.#engine = opts.engine;
     this.#random = opts.random;
+    this.#makeBot = opts.bot ?? (() => randomBot(this.#random));
     this.roomCode = opts.roomCode ?? this.#makeRoomCode();
     const host = this.#addSeat(opts.hostName);
     this.#hostSeat = host.id;
@@ -104,6 +115,7 @@ export class Room<State> {
   connectLocalSeat(seatId: SeatId): LocalConnection {
     const seat = this.#seats.find((s) => s.id === seatId);
     if (!seat) throw new Error(`No Seat ${seatId}`);
+    if (seat.kind !== "local") throw new Error(`Seat ${seatId} is not a local Seat`);
     if (seat.connection && !seat.connection.closed) throw new Error(`Seat ${seatId} is already connected`);
     return this.#connect(seat);
   }
@@ -139,7 +151,13 @@ export class Room<State> {
     if (this.#processing) return;
     this.#processing = true;
     try {
-      for (let next = this.#inbox.shift(); next; next = this.#inbox.shift()) {
+      // Messages first, in arrival order; once none are waiting, one bot move, then look again.
+      for (;;) {
+        const next = this.#inbox.shift();
+        if (!next) {
+          if (this.#stepBot()) continue;
+          break;
+        }
         // A message from a connection that has since been replaced or closed is dropped.
         if (next.seat.connection !== next.connection) continue;
         try {
@@ -189,6 +207,7 @@ export class Room<State> {
 
     switch (msg.t) {
       case "addLocalSeat":
+      case "addBot":
       case "setConfig":
       case "startGame": {
         const error = this.#lobbyCommand(from, msg);
@@ -207,9 +226,6 @@ export class Room<State> {
       case "joinRoom":
         this.#send(from, { t: "error", message: "This Seat is already in the Room" });
         return;
-      case "addBot":
-        this.#send(from, { t: "error", message: "Bot Seats are not supported yet" });
-        return;
       case "chat":
         // Chat has no Room → Seat message yet.
         return;
@@ -217,7 +233,7 @@ export class Room<State> {
   }
 
   /** Returns an error message, or undefined on success. */
-  #lobbyCommand(from: Seat, msg: Extract<ClientMsg, { t: "addLocalSeat" | "setConfig" | "startGame" }>): string | undefined {
+  #lobbyCommand(from: Seat, msg: Extract<ClientMsg, { t: "addLocalSeat" | "addBot" | "setConfig" | "startGame" }>): string | undefined {
     if (from.id !== this.#hostSeat) return `Only the Host can ${msg.t}`;
     if (this.#game) return "The game has already started";
 
@@ -225,6 +241,12 @@ export class Room<State> {
       case "addLocalSeat":
         if (this.#seats.length >= MAX_SEATS) return `A Room has at most ${MAX_SEATS} Seats`;
         this.#addSeat(msg.name);
+        this.#broadcastLobby();
+        return undefined;
+
+      case "addBot":
+        if (this.#seats.length >= MAX_SEATS) return `A Room has at most ${MAX_SEATS} Seats`;
+        this.#addBotSeat(msg.difficulty);
         this.#broadcastLobby();
         return undefined;
 
@@ -236,7 +258,7 @@ export class Room<State> {
         if (this.#seats.length < MIN_SEATS_TO_START) return `The game needs at least ${MIN_SEATS_TO_START} Seats`;
         try {
           const state = this.#engine.createGame({
-            players: this.#seats.map((s) => ({ id: s.id, name: s.name, isBot: false })),
+            players: this.#seats.map((s) => ({ id: s.id, name: s.name, isBot: s.kind === "bot" })),
             seed: this.#makeSeed(),
             config: { ...this.#config },
           });
@@ -256,7 +278,11 @@ export class Room<State> {
     if (!game) return "The game has not started";
 
     // The Seat, not the message, decides who is acting.
-    const action = { ...msg.action, player: from.id };
+    return this.#apply(game, { ...msg.action, player: from.id });
+  }
+
+  /** Applies an action and commits the result. Returns an error message, or undefined on success. */
+  #apply(game: Game<State>, action: Action): string | undefined {
     try {
       const result = this.#engine.applyAction(game.state, action);
       if (!result.ok) return result.error ?? `${action.type} is not a legal action right now`;
@@ -265,6 +291,41 @@ export class Room<State> {
       return `The engine failed on ${action.type}: ${errorMessage(e)}`;
     }
     return undefined;
+  }
+
+  // -------------------------------------------------------------------------
+  // Bots
+  // -------------------------------------------------------------------------
+
+  /**
+   * Makes one move for the first bot Seat, in Seat order, that has something
+   * to do. Returns whether a bot moved. A bot that fails, or picks an action
+   * that isn't legal, is a bug: its error is reported and the bots stop
+   * until the next message, so a broken bot can't loop forever.
+   */
+  #stepBot(): boolean {
+    const game = this.#game;
+    if (!game) return false;
+    for (const seat of this.#seats) {
+      if (!seat.bot) continue;
+      try {
+        const legal = this.#engine.getLegalActions(game.state, seat.id);
+        if (legal.length === 0) continue;
+        // Copies, so a bot can't reach into the game state.
+        const view = copy(this.#engine.getPlayerView(game.state, seat.id));
+        const choice = seat.bot.chooseAction(view, copy(legal));
+        if (!legal.some((a) => canonical(a) === canonical(choice))) {
+          throw new Error(`${seat.name} chose an action that isn't legal: ${JSON.stringify(choice)}`);
+        }
+        const error = this.#apply(game, { ...choice, player: seat.id });
+        if (error) throw new Error(`${seat.name}'s ${choice.type} was rejected: ${error}`);
+        return true;
+      } catch (e) {
+        this.#errors.push(e);
+        return false;
+      }
+    }
+    return false;
   }
 
   // -------------------------------------------------------------------------
@@ -303,15 +364,22 @@ export class Room<State> {
       id: s.id,
       name: s.name,
       kind: s.kind,
-      connected: s.connection !== null && !s.connection.closed,
+      // A bot is always present: it lives inside the Room.
+      connected: s.kind === "bot" || (s.connection !== null && !s.connection.closed),
     }));
     this.#send(seat, { t: "lobby", roomCode: this.roomCode, seats, you: [seat.id] });
   }
 
   #addSeat(name: string): Seat {
-    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind: "local", connection: null };
+    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind: "local", connection: null, bot: null };
     this.#seats.push(seat);
     return seat;
+  }
+
+  #addBotSeat(difficulty: BotDifficulty): void {
+    const id = `s${this.#nextSeatNumber++}`;
+    const bot = this.#makeBot({ id, difficulty });
+    this.#seats.push({ id, name: `Bot ${++this.#botCount}`, kind: "bot", connection: null, bot });
   }
 
   // -------------------------------------------------------------------------
@@ -345,4 +413,20 @@ function actionClientSeq(raw: unknown): number | undefined {
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** A key-order-independent encoding, for comparing a bot's choice with the legal actions. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function copy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
