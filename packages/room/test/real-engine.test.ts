@@ -1,6 +1,7 @@
 import { placeholderCardDefs } from "@here-to-slay/cards";
 import { createRoomEngine, type GameEvent, type GameState, type PlayerView } from "@here-to-slay/engine";
 import { describe, expect, it } from "vitest";
+import type { Action } from "@here-to-slay/protocol";
 import { Room } from "../src/index.js";
 import { Client, FakeClock, FakeTimers, seededRandom } from "./harness.js";
 
@@ -103,14 +104,13 @@ describe("a Room on the real engine", () => {
     const rounds = 10;
     const turnsStarted = new Map<string, number>();
     let discards = 0;
+    let answered = 0;
+    let clientSeq = 0;
     let view = viewOf(host);
-    for (let round = 1; round <= rounds; round++) {
-      // Every bot move runs straight away, so each time the Room settles it is Alice's turn again.
-      expect(view.activePlayer).toBe(alice);
-      expect(view.phase).toEqual({ kind: "action" });
-      expect(view.turnNumber).toBe(1 + (round - 1) * seatIds.length);
+    /** Sends Alice's action and reads every update it caused. */
+    const send = (action: Action) => {
       host.take();
-      host.send({ t: "action", seat: alice, action: { type: "END_TURN", player: alice }, clientSeq: round - 1 });
+      host.send({ t: "action", seat: alice, action, clientSeq: clientSeq++ });
       const updates = host.take().filter((m) => m.t === "update");
       for (const msg of updates) {
         for (const e of msg.events as GameEvent[]) {
@@ -119,11 +119,25 @@ describe("a Room on the real engine", () => {
         }
       }
       view = updates.at(-1)!.view as PlayerView;
+    };
+    for (let round = 1; round <= rounds; round++) {
+      // Every bot move runs straight away, so each time the Room settles it is Alice's turn again.
+      expect(view.activePlayer).toBe(alice);
+      expect(view.phase).toEqual({ kind: "action" });
+      expect(view.turnNumber).toBe(1 + (round - 1) * seatIds.length);
+      send({ type: "END_TURN", player: alice });
+      // A bot's hero may ask Alice something, such as a card to discard.
+      while (view.activePlayer !== alice) {
+        expect(view.pendingDecision).toMatchObject({ player: alice });
+        send(view.legalActions[0]!);
+        answered++;
+      }
     }
     // Every Seat started a turn each round: Alice's first turn began at setup, and her next one has begun.
     expect(Object.fromEntries(turnsStarted)).toEqual(Object.fromEntries(seatIds.map((s) => [s, rounds])));
     expect(view.activePlayer).toBe(alice);
     expect(discards, "no bot ever discarded, so the hand limit went untested").toBeGreaterThan(0);
+    expect(answered, "no bot's effect ever asked Alice anything").toBeGreaterThan(0);
   });
 
   it("stays in the lobby, naming the key, when the engine rejects the config", () => {

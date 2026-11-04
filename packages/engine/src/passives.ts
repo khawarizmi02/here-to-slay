@@ -1,10 +1,12 @@
-import type { CostedAction, PassiveAbility } from "@here-to-slay/cards";
+import type { CostedAction, HeroClass, PassiveAbility, RollKind } from "@here-to-slay/cards";
 import { playerState } from "./players.js";
 import type { CardIndex, GameState, PlayerId } from "./types.js";
 
 /** What a hook point knows when it runs; a passive's condition must match every field it names. */
 export interface HookContext {
   action?: CostedAction;
+  rollKind?: RollKind;
+  heroClass?: HeroClass;
 }
 
 /**
@@ -57,6 +59,11 @@ const BASE_COST: Record<CostedAction, number> = {
   ATTACK_MONSTER: 2,
   DISCARD_AND_REDRAW: 3,
 };
+
+/** What passives add to `player`'s roll (§4.4 `getRollBonus`): the sum of their matching `modifyRollTotal` values. */
+export function rollBonus(defs: CardIndex, state: GameState, player: PlayerId, ctx: HookContext): number {
+  return modifierTotal(defs, state, player, "modifyRollTotal", ctx);
+}
 
 /** `player`'s hand limit (§3.4), after `modifyHandLimit` passives. Never below 0. */
 export function handLimit(defs: CardIndex, state: GameState, player: PlayerId): number {

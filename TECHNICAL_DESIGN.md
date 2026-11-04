@@ -531,6 +531,8 @@ Use these until the real data is entered. Names and numbers are illustrative onl
 
 Note: inside a `forEach`, `"self"` refers to the player being iterated over. The interpreter must bind `self` per iteration.
 
+Note: a `discard` whose `chosenBy` is not the discarding player takes each card at random with the engine's RNG, because a Decision only lists cards its chooser can see (§6.4). The placeholder set always has players choose their own discards.
+
 ### 5.7 Card loading
 - `packages/cards/src/schema.ts` defines Zod schemas for every card type.
 - On startup, the loader validates all JSON files and **fails loudly** on any error.
@@ -627,11 +629,12 @@ export type Action =
 export type Phase =
   | { kind: "setup"; step: "leaderSelect" }
   | { kind: "action" }
+  | { kind: "resolving" }                   // something is on the stack
   | { kind: "turnEnd"; discarded: number } // waiting on hand-limit discards; `discarded` counts picks so far
   | { kind: "gameOver" };
 ```
 
-Only phases that can wait on a player are stored. The first-player roll, the start of a turn, and an end of turn with no discard to make need no input, so they run straight through and no state is ever left in them. `resolving` arrives with the stack (#42).
+Only phases that can wait on a player are stored. The first-player roll, the start of a turn, and an end of turn with no discard to make need no input, so they run straight through and no state is ever left in them. The phase is `resolving` while anything is on the stack, and goes back to `action` once the stack is empty.
 
 At the end of a turn, end-of-turn hooks run first and then the hand-limit discard, so nobody passes the turn over the limit. Each discard is one Decision ("Discard down to your hand limit of 7 (1 of 2)").
 
