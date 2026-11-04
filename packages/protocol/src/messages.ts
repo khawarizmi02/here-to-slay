@@ -87,7 +87,12 @@ export const RoomMsgSchema = z.discriminatedUnion("t", [
     clientSeq: z.number().int().nonnegative(),
     error: z.string().min(1),
   }),
+  /** The Host is disconnected: show "Waiting for Host…". Nothing happens until `hostBack`. */
   z.strictObject({ t: z.literal("hostAway") }),
+  /** The Host is back. A fresh `update` follows, rebuilt from the Host's saved log. */
+  z.strictObject({ t: z.literal("hostBack") }),
+  /** The Host was away too long and the Room has closed; the connection is closed after this. */
+  z.strictObject({ t: z.literal("roomClosed") }),
   z.strictObject({ t: z.literal("error"), message: z.string().min(1) }),
   /**
    * To a local Seat the Room interrupts in a response window: show "Pass the

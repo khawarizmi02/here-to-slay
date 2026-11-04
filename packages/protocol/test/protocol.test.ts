@@ -137,6 +137,8 @@ describe("RoomMsgSchema (Room → Seat)", () => {
     },
     { t: "actionRejected", clientSeq: 4, error: "Not your turn" },
     { t: "hostAway" },
+    { t: "hostBack" },
+    { t: "roomClosed" },
     { t: "error", message: "Room is full" },
     { t: "passDevice", seat: "s2", name: "Bob" },
     { t: "respond", seat: "s2", actions: [{ type: "PASS", player: "s2" }, { type: "PLAY_CHALLENGE", player: "s2", card: "challenge#0" }] },
@@ -146,7 +148,7 @@ describe("RoomMsgSchema (Room → Seat)", () => {
   it("accepts a well-formed example of every message", () => {
     expectAccepts(RoomMsgSchema, valid);
     expect(new Set(valid.map((m) => m.t))).toEqual(
-      new Set(["lobby", "update", "actionRejected", "hostAway", "error", "passDevice", "respond", "countdown"]),
+      new Set(["lobby", "update", "actionRejected", "hostAway", "hostBack", "roomClosed", "error", "passDevice", "respond", "countdown"]),
     );
   });
 
@@ -160,7 +162,8 @@ describe("RoomMsgSchema (Room → Seat)", () => {
       { t: "update", version: 1, events: [] },
       { t: "actionRejected", clientSeq: 1 },
       { t: "error" },
-      { t: "hostBack" },
+      { t: "hostBack", extra: 1 },
+      { t: "roomClosed", reason: "gone" },
       { t: "passDevice", seat: "s2" },
       { t: "respond", seat: "s2", actions: [{ type: "CHEAT", player: "s2" }] },
       { t: "respond", seat: "s2" },

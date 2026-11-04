@@ -111,8 +111,10 @@ export interface JoinOptions {
  * `LocalConnection`.
  *
  * Besides the Room's messages, it reports what the relay says about the Room:
- * `hostAway` while the Host is disconnected, and an `error` when the Room
- * closes or the connection is lost, after which it is closed.
+ * `hostAway` while the Host is disconnected and `hostBack` when it returns
+ * (a fresh `update` follows), `roomClosed` when the Host was away too long,
+ * and an `error` when the connection is lost. After `roomClosed` or an
+ * `error` it is closed.
  */
 export class RelayConnection implements GameConnection {
   readonly roomCode: RoomCode;
@@ -236,23 +238,24 @@ export class RelayConnection implements GameConnection {
         this.#subscribers.deliver({ t: "hostAway" });
         return;
       case "hostBack":
+        this.#subscribers.deliver({ t: "hostBack" });
         // The Host may have refreshed: ask for the current state rather than wait for it.
         this.send({ t: "resync" });
         return;
       case "roomClosed":
-        this.#end(`Room ${this.roomCode} has closed: the Host was away too long`);
+        this.#end(`Room ${this.roomCode} has closed: the Host was away too long`, { t: "roomClosed" });
         return;
     }
   }
 
-  /** The relay ended the connection: tell the UI once, then close. */
-  #end(reason: string): void {
+  /** The relay ended the connection: tell the UI once, with `msg` or else an error, then close. */
+  #end(reason: string, msg: RoomMsg = { t: "error", message: reason }): void {
     if (this.#closed) return;
     this.#endReason = reason;
     if (this.#lost) {
       this.#lost(reason);
     } else {
-      this.#subscribers.deliver({ t: "error", message: reason });
+      this.#subscribers.deliver(msg);
     }
     this.#welcomed = this.#lost = null;
     // Subscribers are kept, so a UI that subscribes late still gets the reason from the backlog.

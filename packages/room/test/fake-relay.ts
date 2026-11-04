@@ -10,7 +10,7 @@ declare function setTimeout(cb: () => void, ms: number): unknown;
  * §10.5): friends get a seat token in a `welcome` frame, every friend frame
  * reaches the Host stamped with the sender's seat token (whatever `from` the
  * friend wrote), the Host addresses frames to one seat token or "all", and
- * the Host hears peerJoined/peerLeft. Frames are JSON text, delivered
+ * the Host hears peerJoined/peerLeft, and friends hear hostAway/hostBack. Frames are JSON text, delivered
  * asynchronously in order, like a WebSocket.
  */
 
@@ -76,6 +76,8 @@ class FakeSocket implements RelaySocket {
 interface FakeRoom {
   hostToken: string;
   host: FakeSocket | null;
+  /** Whether friends were told the Host is away and haven't heard it is back. */
+  hostAway: boolean;
   friends: { seatToken: string; socket: FakeSocket }[];
 }
 
@@ -89,7 +91,7 @@ export class FakeRelay {
 
   createRoom(roomCode = "HXQ7M"): { roomCode: string; hostToken: string } {
     const hostToken = `host-token-${roomCode}`;
-    this.#rooms.set(roomCode, { hostToken, host: null, friends: [] });
+    this.#rooms.set(roomCode, { hostToken, host: null, hostAway: false, friends: [] });
     return { roomCode, hostToken };
   }
 
@@ -101,11 +103,17 @@ export class FakeRelay {
     const socket: FakeSocket = new FakeSocket(
       (data) => this.#fromHost(room, socket, data),
       () => {
-        if (room.host === socket) room.host = null;
+        if (room.host !== socket) return;
+        room.host = null;
+        this.#hostGone(room);
       },
     );
     room.host = socket;
     for (const seatToken of new Set(room.friends.map((f) => f.seatToken))) socket.push(JSON.stringify({ kind: "peerJoined", seatToken }));
+    if (room.hostAway) {
+      room.hostAway = false;
+      for (const { seatToken, socket: friend } of room.friends) this.#toFriend(seatToken, friend, JSON.stringify({ kind: "hostBack" }));
+    }
     return socket;
   }
 
@@ -122,6 +130,7 @@ export class FakeRelay {
       );
       room.friends.push({ seatToken: token, socket });
       if (seatToken === null) this.#toFriend(token, socket, JSON.stringify({ kind: "welcome", seatToken: token }));
+      if (room.hostAway) this.#toFriend(token, socket, JSON.stringify({ kind: "hostAway" }));
       if (first) room.host?.push(JSON.stringify({ kind: "peerJoined", seatToken: token }));
       return Promise.resolve(socket);
     },
@@ -149,6 +158,11 @@ export class FakeRelay {
     const room = this.#rooms.get(roomCode)!;
     room.host?.drop();
     room.host = null;
+    this.#hostGone(room);
+  }
+
+  #hostGone(room: FakeRoom): void {
+    room.hostAway = true;
     for (const { seatToken, socket } of room.friends) this.#toFriend(seatToken, socket, JSON.stringify({ kind: "hostAway" }));
   }
 

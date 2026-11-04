@@ -78,6 +78,15 @@ export const DEFAULT_RESPONSE_WINDOW_MS = 8_000;
  */
 export const RESPONSE_DELAY_MS = { min: 500, max: 2_500 } as const;
 
+/**
+ * How long a remote Seat whose friend has disconnected mid-game is held for
+ * them. After that a bot plays it, until the friend is back and a turn ends.
+ */
+export const SEAT_HOLD_MS = 2 * 60_000;
+
+/** The difficulty of the bot that takes over a remote Seat whose hold ran out. */
+const TAKEOVER_DIFFICULTY: BotDifficulty = "normal";
+
 // The Room package has no DOM or Node types; every runtime it runs in has these.
 declare function setTimeout(cb: () => void, ms: number): unknown;
 declare function clearTimeout(handle: unknown): void;
@@ -155,11 +164,21 @@ interface Seat {
   kind: SeatKind;
   /** Always null for a bot Seat: the Room calls its bot directly. */
   connection: LocalConnection | RemotePeer | null;
-  /** Set only for a bot Seat. */
+  /**
+   * Set for a bot Seat, and for a remote Seat a bot has taken over because
+   * its friend was gone longer than SEAT_HOLD_MS.
+   */
   bot: Bot | null;
   difficulty: BotDifficulty | null;
   /** Set only for a remote Seat: the relay stamps it on every message from that Seat's friend. */
   seatToken: SeatToken | null;
+  /** For a remote Seat in a game: since when its friend has been disconnected, or null while connected. */
+  awaySince: number | null;
+}
+
+/** Who plays a Seat now: a remote Seat a bot has taken over is played by a bot. */
+function playedBy(seat: Seat): SeatKind {
+  return seat.bot ? "bot" : seat.kind;
 }
 
 type InboxItem =
@@ -301,10 +320,11 @@ export class Room<State> {
       // No Seat can be added once the game has started, so the Seat counters needn't be restored.
       this.#seats.push(
         seat.kind === "bot"
-          ? { ...seat, connection: null, bot: this.#makeBot({ id: seat.id, difficulty: seat.difficulty }), seatToken: null }
+          ? { ...seat, connection: null, bot: this.#makeBot({ id: seat.id, difficulty: seat.difficulty }), seatToken: null, awaySince: null }
           : seat.kind === "remote"
-            ? { ...seat, connection: null, bot: null, difficulty: null, seatToken: seat.seatToken ?? null }
-            : { ...seat, connection: null, bot: null, difficulty: null, seatToken: null },
+            ? // A friend's hold restarts from now: a bot that had taken their Seat over is not restored.
+              { ...seat, connection: null, bot: null, difficulty: null, seatToken: seat.seatToken ?? null, awaySince: null }
+            : { ...seat, connection: null, bot: null, difficulty: null, seatToken: null, awaySince: null },
       );
     }
 
@@ -497,7 +517,8 @@ export class Room<State> {
         if (this.#answerExpired()) continue;
         const next = this.#inbox.shift();
         if (!next) {
-          if (this.#stepBot() || this.#passForLocalSeat()) continue;
+          // Only once every waiting message is handled, so a friend's queued reconnect comes first.
+          if (this.#takeOverAbandoned() || this.#stepBot() || this.#passForLocalSeat()) continue;
           // Prompting may make a UI send something, which waits in the inbox.
           this.#prompt();
           if (this.#inbox.length > 0) continue;
@@ -638,6 +659,7 @@ export class Room<State> {
     if (msg.seat !== from.id) return `You don't control Seat ${msg.seat}`;
     const game = this.#game;
     if (!game) return "The game has not started";
+    if (from.bot) return "A bot is playing your Seat until the turn ends";
 
     // Only a Seat the Room would interrupt waits to be asked; one that can only pass may pass by itself.
     const legal = from.kind === "local" ? this.#engine.getLegalActions(game.state, from.id) : [];
@@ -775,10 +797,11 @@ export class Room<State> {
     const now = this.#clock.now();
     const heldBack = this.#seats.some((s) => s.kind === "remote");
     for (const seat of this.#seats) {
-      if (seat.kind === "local" || (seat.kind === "bot" && !heldBack)) continue;
+      const by = playedBy(seat);
+      if (by === "local" || (by === "bot" && !heldBack)) continue;
       try {
         const legal = this.#engine.getLegalActions(game.state, seat.id);
-        const kind = isResponding(legal) ? "respond" : seat.kind === "remote" && isDeciding(legal) ? "decide" : null;
+        const kind = isResponding(legal) ? "respond" : by === "remote" && isDeciding(legal) ? "decide" : null;
         const ask = this.#asks.get(seat);
         if (ask && ask.kind !== kind) this.#endAsk(ask, "The response window has closed");
         if (!kind || this.#asks.has(seat)) continue;
@@ -787,7 +810,7 @@ export class Room<State> {
           continue;
         }
         const holdUntil = now + this.#responseDelay();
-        const countdown = seat.kind === "remote" && hasResponseOptions(legal);
+        const countdown = by === "remote" && hasResponseOptions(legal);
         const deadline = countdown ? now + this.#responseWindowMs(game) : holdUntil;
         this.#asks.set(seat, { seat, kind, holdUntil, deadline, countdown, heldPass: null });
       } catch (e) {
@@ -842,7 +865,7 @@ export class Room<State> {
     let due: Ask | null = null;
     for (const ask of this.#asks.values()) {
       // A bot answers for itself once its delay is up.
-      if (ask.seat.kind !== "remote") continue;
+      if (playedBy(ask.seat) !== "remote") continue;
       if (dueAt(ask) <= now && (!due || dueAt(ask) < dueAt(due))) due = ask;
     }
     if (!due) return false;
@@ -868,10 +891,63 @@ export class Room<State> {
     return answer;
   }
 
+  // -------------------------------------------------------------------------
+  // Seat holds and bot takeover (TECHNICAL_DESIGN.md §10.7)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Keeps track of which friends are away mid-game, and has a bot take over
+   * the first remote Seat whose friend has been away for SEAT_HOLD_MS.
+   * Returns whether a bot took one over. A friend counts as away from the
+   * first time the Room looks after they disconnect, and a restored Room
+   * looks straight away, so every hold restarts from a Host refresh.
+   */
+  #takeOverAbandoned(): boolean {
+    if (!this.#game) return false;
+    const now = this.#clock.now();
+    for (const seat of this.#seats) {
+      if (seat.kind !== "remote" || seat.bot) continue;
+      if (seat.connection && !seat.connection.closed) {
+        seat.awaySince = null;
+        continue;
+      }
+      seat.awaySince ??= now;
+      if (now < seat.awaySince + SEAT_HOLD_MS) continue;
+      try {
+        seat.bot = this.#makeBot({ id: seat.id, difficulty: TAKEOVER_DIFFICULTY });
+      } catch (e) {
+        // A bot factory that fails is a bug: keep holding the Seat rather than loop on it.
+        seat.awaySince = Infinity;
+        this.#errors.push(e);
+        return false;
+      }
+      seat.awaySince = null;
+      // A friend's ask becomes a bot's: it answers after the usual delay, from now.
+      this.#asks.delete(seat);
+      this.#updateAsks(null);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * At a turn boundary, gives every friend who is back their Seat again from
+   * the bot that took it over. They are then asked like any remote Seat.
+   */
+  #handBackSeats(): void {
+    for (const seat of this.#seats) {
+      if (seat.kind !== "remote" || !seat.bot || !seat.connection || seat.connection.closed) continue;
+      seat.bot = null;
+      // The bot's ask, if any, ends; #updateAsks gives the friend a fresh one.
+      this.#asks.delete(seat);
+    }
+  }
+
   /** Schedules the Room's own check for the earliest deadline, replacing any earlier one. */
   #scheduleCheck(): void {
     let at = Infinity;
     for (const ask of this.#asks.values()) at = Math.min(at, dueAt(ask));
+    for (const seat of this.#seats) if (seat.awaySince !== null && !seat.bot) at = Math.min(at, seat.awaySince + SEAT_HOLD_MS);
     if (this.#timer?.at === at) return;
     if (this.#timer) this.#timers.clearTimeout(this.#timer.handle);
     this.#timer = null;
@@ -1018,6 +1094,7 @@ export class Room<State> {
    * the Room as it was.
    */
   #commit(next: Game<State>, events: GameEvent[], action: Action | null): void {
+    const before = this.#game;
     const outbox = this.#seats
       .filter((seat) => seat.connection)
       .map((seat) => [seat, this.#update(next.state, next.version, seat, this.#engine.getPlayerEvents(events, seat.id))] as const);
@@ -1026,8 +1103,19 @@ export class Room<State> {
     this.#save(next);
     for (const [seat, msg] of outbox) this.#send(seat, msg);
     this.#endAnsweredPrompt(next);
+    if (before && this.#isTurnBoundary(before.state, next.state)) this.#handBackSeats();
     this.#updateAsks(action);
     for (const ask of this.#asks.values()) this.#sendCountdown(ask);
+  }
+
+  /** Whether the turn passed to another player between two states. */
+  #isTurnBoundary(before: State, after: State): boolean {
+    try {
+      return this.#engine.getActivePlayer(before) !== this.#engine.getActivePlayer(after);
+    } catch (e) {
+      this.#errors.push(e);
+      return false;
+    }
   }
 
   /**
@@ -1079,7 +1167,7 @@ export class Room<State> {
   }
 
   #addSeat(name: string, kind: "local" | "remote" = "local", seatToken: SeatToken | null = null): Seat {
-    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind, connection: null, bot: null, difficulty: null, seatToken };
+    const seat: Seat = { id: `s${this.#nextSeatNumber++}`, name, kind, connection: null, bot: null, difficulty: null, seatToken, awaySince: null };
     this.#seats.push(seat);
     return seat;
   }
@@ -1087,7 +1175,7 @@ export class Room<State> {
   #addBotSeat(difficulty: BotDifficulty): void {
     const id = `s${this.#nextSeatNumber++}`;
     const bot = this.#makeBot({ id, difficulty });
-    this.#seats.push({ id, name: `Bot ${++this.#botCount}`, kind: "bot", connection: null, bot, difficulty, seatToken: null });
+    this.#seats.push({ id, name: `Bot ${++this.#botCount}`, kind: "bot", connection: null, bot, difficulty, seatToken: null, awaySince: null });
   }
 
   // -------------------------------------------------------------------------
