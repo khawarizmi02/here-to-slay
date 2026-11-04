@@ -2,6 +2,7 @@ import { createRng, shuffle } from "./rng.js";
 import {
   DEFAULT_TOY_CONFIG,
   TOY_CARD_DEFS,
+  TOY_RESPONSE_CARDS,
   type Action,
   type ApplyResult,
   type CreateGameOptions,
@@ -97,7 +98,7 @@ export function getLegalActions(state: GameState, playerId: PlayerId): Action[] 
       const actions: Action[] = [];
       if (state.deck.length > 0) actions.push({ type: "DRAW_CARD", player: playerId });
       for (const card of player.hand) {
-        if (card.def !== "challenge") actions.push({ type: "PLAY_HERO", player: playerId, card: card.id });
+        if (!TOY_RESPONSE_CARDS.includes(card.def)) actions.push({ type: "PLAY_HERO", player: playerId, card: card.id });
       }
       return actions;
     }
@@ -108,6 +109,10 @@ export function getLegalActions(state: GameState, playerId: PlayerId): Action[] 
       const actions: Action[] = [{ type: "PASS", player: playerId }];
       for (const card of player.hand) {
         if (card.def === "challenge") actions.push({ type: "PLAY_CHALLENGE", player: playerId, card: card.id });
+        // A modifier changes only a point card's score.
+        if (card.def === "modifier" && POINTS[window.card.def] !== undefined) {
+          actions.push({ type: "PLAY_MODIFIER", player: playerId, card: card.id, value: 1 });
+        }
       }
       return actions;
     }
@@ -152,7 +157,7 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
       const card = takeFromHand(player, action.card);
       events.push({ type: "CARD_PLAYED", player: player.id, card });
       const awaiting = playersAfter(next, player.id).map((p) => p.id);
-      next.responseWindow = { player: player.id, card, awaiting };
+      next.responseWindow = { player: player.id, card, awaiting, bonus: 0 };
       next.phase = "responseWindow";
       events.push({ type: "RESPONSE_WINDOW_OPENED", player: player.id, card, awaiting: [...awaiting] });
       break;
@@ -173,6 +178,17 @@ export function applyAction(state: GameState, action: Action): ApplyResult {
       next.discard.push(window.card, challenge);
       next.responseWindow = null;
       endTurn(next, events);
+      break;
+    }
+
+    case "PLAY_MODIFIER": {
+      const window = next.responseWindow!;
+      const modifier = takeFromHand(player, action.card);
+      next.discard.push(modifier);
+      window.bonus += 1;
+      // Everyone may answer the new total, including players who already passed.
+      window.awaiting = playersAfter(next, window.player).map((p) => p.id);
+      events.push({ type: "MODIFIED", player: player.id, card: modifier, target: window.card, bonus: window.bonus, awaiting: [...window.awaiting] });
       break;
     }
 
@@ -211,7 +227,7 @@ function resolveCard(state: GameState, events: GameEvent[]): void {
 
   const points = POINTS[window.card.def];
   if (points !== undefined) {
-    score(state, owner, points, events);
+    score(state, owner, points + window.bonus, events);
     endTurn(state, events);
     return;
   }

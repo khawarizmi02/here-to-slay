@@ -81,12 +81,13 @@ describe("ClientMsgSchema (Seat → Room)", () => {
     { t: "action", seat: "s1", action: { type: "PASS", player: "p1" }, clientSeq: 0 },
     { t: "resync" },
     { t: "chat", text: "gg" },
+    { t: "confirmPassDevice", seat: "s2" },
   ];
 
   it("accepts a well-formed example of every message", () => {
     expectAccepts(ClientMsgSchema, valid);
     expect(new Set(valid.map((m) => m.t))).toEqual(
-      new Set(["joinRoom", "addBot", "addLocalSeat", "setConfig", "startGame", "action", "resync", "chat"]),
+      new Set(["joinRoom", "addBot", "addLocalSeat", "setConfig", "startGame", "action", "resync", "chat", "confirmPassDevice"]),
     );
   });
 
@@ -110,6 +111,8 @@ describe("ClientMsgSchema (Seat → Room)", () => {
       { t: "action", action: { type: "PASS", player: "p1" }, clientSeq: 1 },
       { t: "chat", text: "" },
       { t: "chat", text: "x".repeat(501) },
+      { t: "confirmPassDevice" },
+      { t: "confirmPassDevice", seat: "" },
     ]);
   });
 });
@@ -135,12 +138,14 @@ describe("RoomMsgSchema (Room → Seat)", () => {
     { t: "actionRejected", clientSeq: 4, error: "Not your turn" },
     { t: "hostAway" },
     { t: "error", message: "Room is full" },
+    { t: "passDevice", seat: "s2", name: "Bob" },
+    { t: "respond", seat: "s2", actions: [{ type: "PASS", player: "s2" }, { type: "PLAY_CHALLENGE", player: "s2", card: "challenge#0" }] },
   ];
 
   it("accepts a well-formed example of every message", () => {
     expectAccepts(RoomMsgSchema, valid);
     expect(new Set(valid.map((m) => m.t))).toEqual(
-      new Set(["lobby", "update", "actionRejected", "hostAway", "error"]),
+      new Set(["lobby", "update", "actionRejected", "hostAway", "error", "passDevice", "respond"]),
     );
   });
 
@@ -155,6 +160,9 @@ describe("RoomMsgSchema (Room → Seat)", () => {
       { t: "actionRejected", clientSeq: 1 },
       { t: "error" },
       { t: "hostBack" },
+      { t: "passDevice", seat: "s2" },
+      { t: "respond", seat: "s2", actions: [{ type: "CHEAT", player: "s2" }] },
+      { t: "respond", seat: "s2" },
     ]);
   });
 });

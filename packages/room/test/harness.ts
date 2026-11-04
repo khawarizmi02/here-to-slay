@@ -1,7 +1,7 @@
 import { RoomMsgSchema, type Action, type ClientMsg, type RoomMsg } from "@here-to-slay/protocol";
 import * as toy from "@here-to-slay/toy-engine";
 import { expect } from "vitest";
-import { Room, type GameConnection, type RoomEngine, type RoomOptions } from "../src/index.js";
+import { LocalConnection, Room, type GameConnection, type RoomEngine, type RoomOptions } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
 // Test harness: everything goes through the GameConnection seam.
@@ -9,7 +9,7 @@ import { Room, type GameConnection, type RoomEngine, type RoomOptions } from "..
 
 /** The toy engine behind the Room's engine interface. Config values must be positive integers. */
 export const toyEngine: RoomEngine<toy.GameState> = {
-  cardDefsVersion: "toy-1",
+  cardDefsVersion: "toy-2",
   createGame({ players, seed, config }) {
     const parsed: Partial<toy.ToyConfig> = {};
     for (const [key, value] of Object.entries(config)) {
@@ -23,9 +23,32 @@ export const toyEngine: RoomEngine<toy.GameState> = {
   },
   applyAction: toy.applyAction,
   getLegalActions: toy.getLegalActions,
+  getActivePlayer: (state) => state.activePlayer,
   getPlayerView: (state, player) => toy.getPlayerView(state, player) as unknown as Record<string, unknown>,
   getPlayerEvents: toy.getPlayerEvents,
 };
+
+/** The toy engine dealing a fixed deck, top card first: `handSize` cards to each Seat in Seat order. */
+export function fixedDeck(deckOrder: toy.ToyCardDefId[]): RoomEngine<toy.GameState> {
+  return {
+    ...toyEngine,
+    createGame: ({ players, seed, config }) =>
+      toy.createGame({ players, seed, config: config as Partial<toy.ToyConfig>, deckOrder: [...deckOrder] }),
+  };
+}
+
+/** A clock that only moves when a test moves it. */
+export class FakeClock {
+  constructor(public time = 1_000) {}
+
+  now(): number {
+    return this.time;
+  }
+
+  advance(ms: number): void {
+    this.time += ms;
+  }
+}
 
 /** A seeded stand-in for Math.random. */
 export function seededRandom(seed: string): () => number {
@@ -105,22 +128,49 @@ export function hotSeat(extra: string[], overrides: Partial<RoomOptions<toy.Game
   return { room, host, hostSeat, clients, seatIds: seats.map((s) => s.id) };
 }
 
+/** One thing a hot-seat UI does: send an action, or confirm the device has been passed. */
+export type Move = { seat: string; action: Action } | { seat: string; confirm: true };
+
+export function sendMove(clients: Map<string, Client>, move: Move, clientSeq: number): void {
+  const client = clients.get(move.seat)!;
+  if ("confirm" in move) client.send({ t: "confirmPassDevice", seat: move.seat });
+  else client.send({ t: "action", seat: move.seat, action: move.action, clientSeq });
+}
+
+/**
+ * The response prompt standing for a Seat: one sent after its latest
+ * update. The Room sends the prompt again after every update while it stands.
+ */
+export function promptOf(client: Client): Extract<RoomMsg, { t: "passDevice" | "respond" }> | undefined {
+  let prompt: Extract<RoomMsg, { t: "passDevice" | "respond" }> | undefined;
+  for (const msg of client.inbox) {
+    if (msg.t === "update") prompt = undefined;
+    else if (msg.t === "passDevice" || msg.t === "respond") prompt = msg;
+  }
+  return prompt;
+}
+
 /**
  * Chooses the next move using only what each Seat can see in its own latest
- * view, the way a hot-seat UI would pick whose turn or prompt is showing.
+ * view and prompt, the way a hot-seat UI would pick whose turn or prompt is
+ * showing. A local Seat responds only once the Room asks it to.
  */
-export function nextMove(clients: Map<string, Client>): { seat: string; action: Action } | undefined {
+export function nextMove(clients: Map<string, Client>): Move | undefined {
   for (const [seat, client] of clients) {
     const view = viewOf(client.last("update"));
     if (view.phase === "gameOver") return undefined;
     const player = "ignored-by-room";
     if (view.phase === "action" && view.activePlayer === seat) {
-      const playable = view.hand.find((c) => c.def !== "challenge");
+      const playable = view.hand.find((c) => !toy.TOY_RESPONSE_CARDS.includes(c.def));
       if (playable) return { seat, action: { type: "PLAY_HERO", player, card: playable.id } };
       return { seat, action: { type: "DRAW_CARD", player } };
     }
     if (view.phase === "responseWindow" && view.responseWindow?.awaiting.includes(seat)) {
-      return { seat, action: { type: "PASS", player } };
+      if (!(client.conn instanceof LocalConnection)) return { seat, action: { type: "PASS", player } };
+      const prompt = promptOf(client);
+      if (prompt?.t === "passDevice") return { seat, confirm: true };
+      if (prompt?.t === "respond") return { seat, action: { type: "PASS", player } };
+      continue;
     }
     if (view.phase === "decision" && view.pendingDecision && "id" in view.pendingDecision) {
       const decision = view.pendingDecision;

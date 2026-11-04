@@ -139,6 +139,11 @@ export class FakeRelay {
     room.host?.drop();
   }
 
+  /** The relay's 1-second heartbeat to the Host. */
+  tick(roomCode: string): void {
+    this.#rooms.get(roomCode)?.host?.push(JSON.stringify({ kind: "tick" }));
+  }
+
   /** The Host's connection drops. */
   dropHost(roomCode: string): void {
     const room = this.#rooms.get(roomCode)!;

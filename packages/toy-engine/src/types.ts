@@ -8,8 +8,13 @@ export type { Action, CardInstanceId, PlayerId };
  * - `point_N`: play it; if nobody challenges it, score N points.
  * - `wish`: play it; if nobody challenges it, choose to gain 2 points or draw 2 cards (a pending decision).
  * - `challenge`: only playable from hand in a response window; cancels the card being played.
+ * - `modifier`: only playable from hand in a response window on a `point_N` card, which then
+ *   scores 1 more point. The window reopens to every responder, passed or not.
  */
-export const TOY_CARD_DEFS = ["point_1", "point_2", "point_3", "wish", "challenge"] as const;
+export const TOY_CARD_DEFS = ["point_1", "point_2", "point_3", "wish", "challenge", "modifier"] as const;
+
+/** Cards that can only be played in a response window, never on your own turn. */
+export const TOY_RESPONSE_CARDS: readonly ToyCardDefId[] = ["challenge", "modifier"];
 export type ToyCardDefId = (typeof TOY_CARD_DEFS)[number];
 
 export interface ToyCard {
@@ -55,6 +60,8 @@ export interface ToyResponseWindow {
   card: ToyCard;
   /** Players who have not yet passed, in turn order after `player`. */
   awaiting: PlayerId[];
+  /** Extra points from modifiers played on the card. */
+  bonus: number;
 }
 
 export type ToyPhase = "action" | "responseWindow" | "decision" | "gameOver";
@@ -83,6 +90,7 @@ export type GameEvent =
   | { type: "RESPONSE_WINDOW_OPENED"; player: PlayerId; card: ToyCard; awaiting: PlayerId[] }
   | { type: "PASSED"; player: PlayerId }
   | { type: "CHALLENGED"; player: PlayerId; card: ToyCard; target: ToyCard }
+  | { type: "MODIFIED"; player: PlayerId; card: ToyCard; target: ToyCard; bonus: number; awaiting: PlayerId[] }
   | { type: "POINTS_SCORED"; player: PlayerId; points: number; total: number }
   | { type: "DECISION_OPENED"; player: PlayerId; decisionId: string }
   | { type: "DECISION_RESOLVED"; player: PlayerId; decisionId: string; selected: string[] }
