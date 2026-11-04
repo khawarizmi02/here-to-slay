@@ -2,7 +2,7 @@ import { placeholderCardDefs } from "@here-to-slay/cards";
 import { createRoomEngine, type GameEvent, type GameState, type PlayerView } from "@here-to-slay/engine";
 import { describe, expect, it } from "vitest";
 import type { Action } from "@here-to-slay/protocol";
-import { Room } from "../src/index.js";
+import { Room, type Bot } from "../src/index.js";
 import { Client, FakeClock, FakeTimers, seededRandom } from "./harness.js";
 
 /*
@@ -10,7 +10,7 @@ import { Client, FakeClock, FakeTimers, seededRandom } from "./harness.js";
  * the toy engine; these check the two fit together).
  */
 
-function realRoom(extra: string[], bots = 0) {
+function realRoom(extra: string[], bots = 0, bot?: () => Bot) {
   const clock = new FakeClock();
   const room = new Room<GameState>({
     engine: createRoomEngine(placeholderCardDefs),
@@ -18,6 +18,7 @@ function realRoom(extra: string[], bots = 0) {
     timers: new FakeTimers(clock),
     random: seededRandom("real-room"),
     hostName: "Alice",
+    ...(bot ? { bot } : {}),
   });
   const host = new Client(room.hostConnection);
   for (const name of extra) host.send({ t: "addLocalSeat", name });
@@ -32,6 +33,23 @@ function realRoom(extra: string[], bots = 0) {
 }
 
 const viewOf = (client: Client) => client.last("update").view as PlayerView;
+
+/** The fuzz policy (TECHNICAL_DESIGN.md §13.1): a random legal action, and END_TURN only when nothing else is legal. */
+function fuzzPick(legal: readonly Action[], random: () => number): Action {
+  const others = legal.filter((a) => a.type !== "END_TURN");
+  const pool = others.length > 0 ? others : legal;
+  return pool[Math.floor(random() * pool.length)]!;
+}
+
+/** Fuzz-policy bots, counting every move any of them makes in `moves.count`. */
+const fuzzBots =
+  (random: () => number, moves: { count: number }): (() => Bot) =>
+  () => ({
+    chooseAction: (_view, legal) => {
+      moves.count++;
+      return fuzzPick(legal, random);
+    },
+  });
 
 describe("a Room on the real engine", () => {
   it("starts a real game, and each Seat's view shows only its own hand", () => {
@@ -138,6 +156,33 @@ describe("a Room on the real engine", () => {
     expect(view.activePlayer).toBe(alice);
     expect(discards, "no bot ever discarded, so the hand limit went untested").toBeGreaterThan(0);
     expect(answered, "no bot's effect ever asked Alice anything").toBeGreaterThan(0);
+  });
+
+  it("plays to game over with the fuzz policy for the bots and the Host's Seat", () => {
+    const botMoves = { count: 0 };
+    const { host, seatIds } = realRoom([], 3, fuzzBots(seededRandom("fuzz-bots"), botMoves));
+    const alice = seatIds[0]!;
+    const random = seededRandom("fuzz-alice");
+    host.send({ t: "startGame" });
+
+    let view = viewOf(host);
+    let won: GameEvent | undefined;
+    for (let clientSeq = 0; view.phase.kind !== "gameOver"; clientSeq++) {
+      // Bots move straight away, so whenever the Room settles, Alice has something to do.
+      expect(clientSeq + botMoves.count, "the game didn't end within 5,000 actions").toBeLessThan(5_000);
+      expect(view.legalActions, `the Room stalled in ${view.phase.kind} on ${view.activePlayer}'s turn`).not.toEqual([]);
+      host.take();
+      host.send({ t: "action", seat: alice, action: fuzzPick(view.legalActions, random), clientSeq });
+      const updates = host.take().filter((m) => m.t === "update");
+      expect(updates, "Alice's action didn't change the game").not.toEqual([]);
+      won ??= updates.flatMap((m) => m.events as GameEvent[]).find((e) => e.type === "GAME_WON");
+      view = updates.at(-1)!.view as PlayerView;
+    }
+
+    expect(botMoves.count, "the bots never moved").toBeGreaterThan(0);
+    expect(seatIds).toContain(view.winner);
+    expect(won).toEqual({ type: "GAME_WON", player: view.winner, reason: view.winReason });
+    expect(view.legalActions).toEqual([]);
   });
 
   it("stays in the lobby, naming the key, when the engine rejects the config", () => {
