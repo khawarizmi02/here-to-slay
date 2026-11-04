@@ -2,16 +2,26 @@ import type { ClientMsg } from "@here-to-slay/protocol";
 import { describe, expect, it } from "vitest";
 import { JoinError, MemoryActionLogStore, RelayConnection, Room, relaySocket, type WebSocketLike } from "../src/index.js";
 import { FakeRelay, settle } from "./fake-relay.js";
-import { Client, makeRoom, nextMove, sendMove, toyEngine, viewOf, type Update } from "./harness.js";
+import { Client, FakeClock, FakeTimers, makeRoom, nextMove, sendMove, toyEngine, viewOf, type Update } from "./harness.js";
 
 /** A Host whose Room is attached to a fake relay, still in the lobby. */
 function hostedRoom(overrides: Parameters<typeof makeRoom>[0] = {}) {
   const relay = new FakeRelay();
   const { roomCode, hostToken } = relay.createRoom();
-  const room = makeRoom({ roomCode, ...overrides });
+  const clock = new FakeClock();
+  const timers = new FakeTimers(clock);
+  const room = makeRoom({ roomCode, clock, timers, ...overrides });
   room.attachRelay(relay.connectHost(roomCode, hostToken));
   const host = new Client(room.hostConnection);
-  return { relay, room, roomCode, host, hostSeat: host.last("lobby").you[0]! };
+  /** Lets enough time pass for every pass a remote Seat sent, and every bot's response, to take effect. */
+  const elapse = async () => {
+    // Messages in flight arrive first, so nobody's time runs out while their move crosses the relay.
+    await settle();
+    clock.advance(2_500);
+    timers.fireDue();
+    await settle();
+  };
+  return { relay, room, roomCode, host, hostSeat: host.last("lobby").you[0]!, elapse };
 }
 
 async function join(relay: FakeRelay, roomCode: string, name: string) {
@@ -158,9 +168,9 @@ async function mixedRoom(overrides: Parameters<typeof makeRoom>[0] = {}) {
 }
 
 /** Plays until game over, each human Seat choosing from its own latest view, like a UI would. */
-async function playToGameOver(clients: Map<string, Client>): Promise<void> {
+async function playToGameOver(clients: Map<string, Client>, elapse: () => Promise<void>): Promise<void> {
   for (let clientSeq = 0; ; clientSeq++) {
-    await settle();
+    await elapse();
     const move = nextMove(clients);
     if (!move) return;
     sendMove(clients, move, clientSeq);
@@ -171,9 +181,9 @@ async function playToGameOver(clients: Map<string, Client>): Promise<void> {
 describe("playing with remote Seats", () => {
   it("plays a toy game with local, bot and remote Seats from the lobby to game over", async () => {
     const store = new MemoryActionLogStore();
-    const { room, roomCode, host, clients, bob } = await mixedRoom({ store });
+    const { room, roomCode, host, clients, bob, elapse } = await mixedRoom({ store });
     host.send({ t: "startGame" });
-    await playToGameOver(clients);
+    await playToGameOver(clients, elapse);
 
     const final = viewOf(host.last("update"));
     expect(final.phase).toBe("gameOver");
@@ -200,14 +210,14 @@ describe("playing with remote Seats", () => {
   });
 
   it("acts for the friend's own Seat, whatever player the action claims", async () => {
-    const { host, clients, bob, hostSeat } = await mixedRoom();
+    const { host, clients, bob, hostSeat, elapse } = await mixedRoom();
     host.send({ t: "startGame" });
-    await settle();
+    await elapse();
     // Play until it is Bob's turn.
     for (let clientSeq = 0; viewOf(bob.client.last("update")).activePlayer !== bob.seat || viewOf(bob.client.last("update")).phase !== "action"; clientSeq++) {
       const move = nextMove(clients)!;
       sendMove(clients, move, clientSeq);
-      await settle();
+      await elapse();
     }
     bob.client.send({ t: "action", seat: bob.seat, action: { type: "DRAW_CARD", player: hostSeat }, clientSeq: 99 });
     await settle();
@@ -298,9 +308,9 @@ describe("validation", () => {
 
 describe("hidden information", () => {
   it("never sends a remote Seat another Seat's hand, in views or events", async () => {
-    const { relay, host, clients, bob, cara } = await mixedRoom();
+    const { relay, host, clients, bob, cara, elapse } = await mixedRoom();
     host.send({ t: "startGame" });
-    await playToGameOver(clients);
+    await playToGameOver(clients, elapse);
 
     for (const friend of [bob, cara]) {
       const updates = friend.client.of("update");

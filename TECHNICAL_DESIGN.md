@@ -896,12 +896,15 @@ type RoomMsg =
   | { t: "hostAway" }                // the relay sends this when the Host disconnects
   | { t: "error"; message: string }
   | { t: "passDevice"; seat: SeatId; name: string }      // local Seat asked to respond (§7.4)
-  | { t: "respond"; seat: SeatId; actions: Action[] };   // its options, once it confirms
+  | { t: "respond"; seat: SeatId; actions: Action[] }    // its options, once it confirms
+  | { t: "countdown"; seat: SeatId; ms: number };        // remote Seat: time left before the Room answers for it
 ```
 
 **One update message.** Every state change increments `version`. The Room sends each Seat one `update`. Its `events` are filtered for that Seat (Section 9) and describe the change from `version - 1` to `version`. Its `view` is the resulting state. The client animates the events and then applies the view. If the client sees a version gap (it missed messages), it skips the animations and applies the view directly. No separate resync is needed, but a client may send `resync` after it reconnects.
 
 **Response prompts for local Seats.** The Room passes, with an ordinary logged `PASS`, for a local Seat that is asked to respond but holds no usable card. It asks the others one at a time, in turn order after the active player: first `passDevice`, then, after `confirmPassDevice`, `respond` with the Seat's options. It rejects a local Seat's response before then. While a prompt stands, the Room sends it again after every `update`, so a UI knows a prompt is current if one follows the latest update.
+
+**Response windows for remote Seats.** A remote Seat is always asked; it reads its options from its view and answers with `action`. A pass, whether the friend sends it or the Room makes it for a Seat that holds no usable card, takes effect no sooner than the Seat's random 0.5–2.5 s delay, so other players can't tell the two apart. A Seat with a usable card, or with a decision to answer, gets `countdown` with the milliseconds left, again after every update while it stands. When it runs out, the Room applies the default action (Section 10.6). A pass still waiting when another response reopens the window is answered with `actionRejected`, and the Seat is asked afresh.
 
 **Identity.** The Room ignores any identity claim in a remote message. It uses the `from` token the relay stamps on the message (Section 10.5) to find that player's Seat, sets `action.player` from that Seat, and rejects an action whose `seat` isn't owned by that token. A `local` Seat's actions come from `LocalConnection`, and the UI picks the Seat according to whose turn it is or whose prompt is showing.
 
@@ -941,7 +944,7 @@ Rules:
 
 - Response windows and decisions have timeouts, but only for remote Seats (Section 7.4). On timeout, the Room creates a normal `PASS` or `RESOLVE_DECISION` action (the first legal option, or a random one for discards) and applies it like any other action. **Every timeout is recorded in the action log**, so a replay takes exactly the same path.
 - Timers live in the Room, never in the engine. The engine stays free of `Date.now()`.
-- Each timer is stored as a **deadline timestamp**. The Room checks for expired deadlines on every incoming message, on the relay's 1-second `tick`, on its own `setTimeout`, and on `visibilitychange`. Browsers slow down `setTimeout` in background tabs; the relay's ticks keep deadlines on time even then.
+- Each timer is stored as a **deadline timestamp**. The Room checks for expired deadlines on every incoming message, on the relay's 1-second `tick`, on its own `setTimeout`, and on `visibilitychange` (the Host's UI calls `room.checkDeadlines()`). Browsers slow down `setTimeout` in background tabs; the relay's ticks keep deadlines on time even then.
 - The Host's UI shows a "Keep this tab open: you are hosting" notice.
 
 ### 10.7 Persistence & reconnection

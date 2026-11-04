@@ -140,12 +140,13 @@ describe("RoomMsgSchema (Room → Seat)", () => {
     { t: "error", message: "Room is full" },
     { t: "passDevice", seat: "s2", name: "Bob" },
     { t: "respond", seat: "s2", actions: [{ type: "PASS", player: "s2" }, { type: "PLAY_CHALLENGE", player: "s2", card: "challenge#0" }] },
+    { t: "countdown", seat: "s2", ms: 8000 },
   ];
 
   it("accepts a well-formed example of every message", () => {
     expectAccepts(RoomMsgSchema, valid);
     expect(new Set(valid.map((m) => m.t))).toEqual(
-      new Set(["lobby", "update", "actionRejected", "hostAway", "error", "passDevice", "respond"]),
+      new Set(["lobby", "update", "actionRejected", "hostAway", "error", "passDevice", "respond", "countdown"]),
     );
   });
 
@@ -163,6 +164,9 @@ describe("RoomMsgSchema (Room → Seat)", () => {
       { t: "passDevice", seat: "s2" },
       { t: "respond", seat: "s2", actions: [{ type: "CHEAT", player: "s2" }] },
       { t: "respond", seat: "s2" },
+      { t: "countdown", seat: "s2", ms: -1 },
+      { t: "countdown", seat: "s2", ms: 1.5 },
+      { t: "countdown", seat: "s2" },
     ]);
   });
 });

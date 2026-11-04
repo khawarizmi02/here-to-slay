@@ -13,6 +13,8 @@ export const toyEngine: RoomEngine<toy.GameState> = {
   createGame({ players, seed, config }) {
     const parsed: Partial<toy.ToyConfig> = {};
     for (const [key, value] of Object.entries(config)) {
+      // A Room setting, not a rule the toy engine knows.
+      if (key === "responseWindowMs") continue;
       if (key !== "targetScore" && key !== "handSize") throw new Error(`Unknown config flag ${key}`);
       if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
         throw new Error(`${key} must be a positive integer`);
@@ -50,6 +52,43 @@ export class FakeClock {
   }
 }
 
+/**
+ * The Room's own timers, run against a fake clock. Nothing fires until a test
+ * calls `fireDue`, so a test that never calls it is a background tab whose
+ * timers the browser has throttled.
+ */
+export class FakeTimers {
+  #next = 1;
+  readonly #pending = new Map<number, { at: number; cb: () => void }>();
+
+  constructor(readonly clock: { now(): number }) {}
+
+  setTimeout(cb: () => void, ms: number): unknown {
+    const handle = this.#next++;
+    this.#pending.set(handle, { at: this.clock.now() + ms, cb });
+    return handle;
+  }
+
+  clearTimeout(handle: unknown): void {
+    this.#pending.delete(handle as number);
+  }
+
+  /** How many timers are waiting. */
+  get size(): number {
+    return this.#pending.size;
+  }
+
+  /** Runs every timer that is due by the clock, earliest first. */
+  fireDue(): void {
+    for (;;) {
+      const due = [...this.#pending].filter(([, t]) => t.at <= this.clock.now()).sort(([, a], [, b]) => a.at - b.at)[0];
+      if (!due) return;
+      this.#pending.delete(due[0]);
+      due[1].cb();
+    }
+  }
+}
+
 /** A seeded stand-in for Math.random. */
 export function seededRandom(seed: string): () => number {
   let rng = toy.createRng(seed);
@@ -61,9 +100,12 @@ export function seededRandom(seed: string): () => number {
 }
 
 export function makeRoom(overrides: Partial<RoomOptions<toy.GameState>> = {}): Room<toy.GameState> {
+  // Default timers follow whichever clock the Room uses.
+  const clock = overrides.clock ?? new FakeClock();
   return new Room({
     engine: toyEngine,
-    clock: { now: () => 1_000 },
+    clock,
+    timers: new FakeTimers(clock),
     random: seededRandom("room"),
     hostName: "Alice",
     ...overrides,
