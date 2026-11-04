@@ -115,10 +115,25 @@ export interface RollFrame {
   roller: PlayerId;
   rollKind: "heroEffect";
   hero: CardInstanceId;
+  /** "beforeRoll" until the roller's beforeRoll passives are on the stack, then "dice". */
+  stage: "beforeRoll" | "dice";
+}
+
+/**
+ * A Magic card being played (§3.5). While it resolves the card is in no
+ * zone; once its effect is done it goes to the discard pile, and if the game
+ * ends first, it goes there then.
+ */
+export interface MagicFrame {
+  kind: "magic";
+  player: PlayerId;
+  card: CardInstanceId;
+  /** Whether the card's effect is on the stack yet. */
+  started: boolean;
 }
 
 /** The top of the stack is the last element (§7.1). */
-export type StackFrame = EffectFrame | FreeRollFrame | RollFrame;
+export type StackFrame = EffectFrame | FreeRollFrame | RollFrame | MagicFrame;
 
 /** One player's 2d6 in a first-player roll. */
 export interface FirstPlayerRoll {
@@ -182,6 +197,12 @@ export type GameEvent =
   | { type: "TURN_ENDED"; player: PlayerId }
   | { type: "CARD_DISCARDED"; player: PlayerId; card: CardView }
   | { type: "HERO_PLAYED"; player: PlayerId; card: CardView }
+  /** `player` put `card` on `owner`'s `hero`. */
+  | { type: "ITEM_PLAYED"; player: PlayerId; card: CardView; owner: PlayerId; hero: CardView }
+  /** `player` played a Magic card; its effect resolves next. */
+  | { type: "MAGIC_PLAYED"; player: PlayerId; card: CardView }
+  /** A Magic card's effect is done and the card went to the discard pile. */
+  | { type: "MAGIC_DISCARDED"; player: PlayerId; card: CardView }
   /** `player` took `hero` from `from`'s party into their own; `item` is the item that came with it. */
   | { type: "HERO_STOLEN"; player: PlayerId; from: PlayerId; hero: CardView; item: CardView | null }
   /** `player` destroyed `owner`'s hero: it and its `item` went to the discard pile. */
