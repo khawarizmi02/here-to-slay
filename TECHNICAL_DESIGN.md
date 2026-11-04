@@ -177,7 +177,7 @@ Additional rules:
 - Playing a Challenge costs no AP.
 
 ### 3.8 Card-specific mechanics
-- **Items:** each hero can hold at most one item. When a hero leaves a party (destroyed or sacrificed), its item goes to the discard pile. When a hero is stolen, its item moves with it. ⚙️ `itemFollowsStolenHero` (default `true`)
+- **Items:** each hero can hold at most one item. When a hero leaves a party (destroyed or sacrificed), its item goes to the discard pile. When a hero is stolen, its item moves with it; with the flag off, the item goes to the discard pile instead. ⚙️ `itemFollowsStolenHero` (default `true`)
 - **Cursed items:** these are items with a negative effect and are usually equipped to an opponent's hero.
 - **Mask items:** the equipped hero counts as the mask's class for all purposes, including the class win condition and monster requirements.
 - **Party Leaders:** cannot be stolen, destroyed, or sacrificed. Their passive ability is always active.
