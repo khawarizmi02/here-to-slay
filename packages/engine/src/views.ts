@@ -47,10 +47,14 @@ export function getPlayerView(defs: CardIndex, state: GameState, viewer: PlayerI
   };
 }
 
-/** Filters events for one player: another player's draw doesn't show the card. */
+/**
+ * Filters events for one player: another player's draw doesn't show the
+ * card, and a pull shows it only to the puller and the player pulled from (§9).
+ */
 export function getPlayerEvents(events: readonly GameEvent[], viewer: PlayerId | "spectator"): GameEvent[] {
   return events.map((e) => {
     if (e.type === "CARD_DRAWN" && e.player !== viewer) return { type: "CARD_DRAWN", player: e.player };
+    if (e.type === "CARD_PULLED" && e.player !== viewer && e.from !== viewer) return { type: "CARD_PULLED", player: e.player, from: e.from };
     return clone(e);
   });
 }

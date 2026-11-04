@@ -1,6 +1,7 @@
-import type { Effect, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
+import type { Effect, HeroFilter, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
 import { heroDef, startHeroRoll } from "./heroes.js";
+import { discardHero, heroesMatching, stealHero, type OwnedHero } from "./party.js";
 import { rollBonus } from "./passives.js";
 import { fromPlayer, playerState } from "./players.js";
 import { nextInt, rollD6 } from "./rng.js";
@@ -188,11 +189,119 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
     }
     case "discard":
       return discardStep(defs, state, frame, effect, events);
+    case "steal": {
+      // Only players with a hero that fits, and never the stealer.
+      const fits = heroesMatching(defs, state, frame.self, effect.target).filter((c) => c.owner !== frame.self);
+      const hasFit = (id: PlayerId) => fits.some((c) => c.owner === id);
+      const from = playerRef(defs, state, frame, "from", effect.from, "Choose a player to steal a hero from", events, hasFit);
+      if (from === undefined) return;
+      const candidates = fits.filter((c) => c.owner === from);
+      const picked = pickHero(defs, state, frame, "hero", chooserOf(frame, effect.target), candidates, "Choose a hero to steal", events);
+      if (picked === undefined) return;
+      state.stack.pop();
+      if (picked !== null) stealHero(state, frame.self, picked.owner, picked.hero, events);
+      return;
+    }
+    case "destroy": {
+      const candidates = heroesMatching(defs, state, frame.self, effect.target);
+      const picked = pickHero(defs, state, frame, "hero", chooserOf(frame, effect.target), candidates, "Choose a hero to destroy", events);
+      if (picked === undefined) return;
+      state.stack.pop();
+      if (picked !== null) discardHero(state, "HERO_DESTROYED", frame.self, picked.owner, picked.hero, events);
+      return;
+    }
+    case "sacrifice":
+      return sacrificeStep(defs, state, frame, effect, events);
+    case "pull":
+      return pullStep(defs, state, frame, effect, events);
     default:
-      // Steal, destroy, sacrifice and pull arrive in #43; the other ops with the cards that need them.
+      // The other ops arrive with the cards that need them.
       state.stack.pop();
       return;
   }
+}
+
+/** Who picks the hero a HeroFilter targets: `frame.self`, or the hero's owner. */
+function chooserOf(frame: EffectFrame, target: HeroFilter): PlayerId | "owner" {
+  return target.chosenBy === "self" ? frame.self : "owner";
+}
+
+/**
+ * One hero from `candidates`, stored as `frame.bindings[key]`, picked by
+ * `chooser`. With "owner", the hero's owner picks, after `frame.self` picks
+ * whose hero it is if several players own one. Undefined while a Decision
+ * is being asked; null when there is no candidate.
+ */
+function pickHero(
+  defs: CardIndex,
+  state: GameState,
+  frame: EffectFrame,
+  key: string,
+  chooser: PlayerId | "owner",
+  candidates: OwnedHero[],
+  prompt: string,
+  events: GameEvent[],
+): OwnedHero | null | undefined {
+  if (key in frame.bindings) return candidates.find((c) => c.hero === frame.bindings[key]) ?? null;
+  if (candidates.length === 0) return null;
+  let options = candidates;
+  if (chooser === "owner") {
+    const ownerKey = `${key}Owner`;
+    if (!(ownerKey in frame.bindings)) {
+      const owners = [...new Set(candidates.map((c) => c.owner))];
+      const ownerPrompt = `${sourceName(defs, state, frame)}: choose whose hero`;
+      ask(defs, state, frame, ownerKey, { player: frame.self, kind: "choosePlayer", prompt: ownerPrompt, options: decisionOptions(state, { players: owners }), discard: false }, events);
+      return undefined;
+    }
+    const owner = frame.bindings[ownerKey]!;
+    chooser = owner;
+    options = candidates.filter((c) => c.owner === owner);
+  }
+  // Giving up one of your own heroes is a discard Decision (§6.4).
+  const discard = options.every((c) => c.owner === chooser);
+  ask(defs, state, frame, key, { player: chooser, kind: "chooseHero", prompt, options: decisionOptions(state, { cards: options.map((c) => c.hero) }), discard }, events);
+  return undefined;
+}
+
+/** `who` sacrifices `amount` of their heroes, or all of them if they have fewer: one Decision per hero. */
+function sacrificeStep(defs: CardIndex, state: GameState, frame: EffectFrame, effect: Extract<Effect, { op: "sacrifice" }>, events: GameEvent[]): void {
+  const who = playerRef(defs, state, frame, "who", effect.who, `Choose a player to sacrifice ${heroes(effect.amount)}`, events);
+  if (who === undefined) return;
+  const own = who === null ? [] : heroesMatching(defs, state, who, { owner: "self" });
+  const left = Math.min(effect.amount - frame.pc, own.length);
+  if (left <= 0) {
+    state.stack.pop();
+    return;
+  }
+  const prompt = `Choose a hero to sacrifice (${frame.pc + 1} of ${frame.pc + left})`;
+  const picked = pickHero(defs, state, frame, `hero${frame.pc}`, who!, own, prompt, events);
+  if (picked === undefined) return;
+  if (picked === null) {
+    state.stack.pop();
+    return;
+  }
+  discardHero(state, "HERO_SACRIFICED", who!, picked.owner, picked.hero, events);
+  frame.pc++;
+}
+
+/**
+ * The controller takes `amount` cards from `from`'s hand, or all of it if it
+ * has fewer, each picked at random with the engine's RNG and no Decision (§9).
+ */
+function pullStep(defs: CardIndex, state: GameState, frame: EffectFrame, effect: Extract<Effect, { op: "pull" }>, events: GameEvent[]): void {
+  const from = playerRef(defs, state, frame, "from", effect.from, `Choose a player to pull ${cards(effect.amount)} from`, events);
+  if (from === undefined) return;
+  const theirs = from === null || from === frame.self ? [] : playerState(state, from).hand;
+  if (frame.pc >= effect.amount || theirs.length === 0) {
+    state.stack.pop();
+    return;
+  }
+  let i: number;
+  [i, state.rng] = nextInt(theirs.length, state.rng);
+  const card = theirs.splice(i, 1)[0]!;
+  playerState(state, frame.self).hand.push(card);
+  events.push({ type: "CARD_PULLED", player: frame.self, from: from!, card: { id: card, def: state.cards[card]! } });
+  frame.pc++;
 }
 
 /**
@@ -247,11 +356,13 @@ function playerRef(
   ref: PlayerRef,
   prompt: string,
   events: GameEvent[],
+  /** What else a chosen player must be, for the op to have a target. */
+  eligible: (id: PlayerId) => boolean = () => true,
 ): PlayerId | null | undefined {
   if (ref === "self") return frame.self;
   if (ref === "activePlayer") return state.activePlayer;
   if (key in frame.bindings) return frame.bindings[key];
-  const players = state.turnOrder.filter((id) => matchesFilter(state, frame.self, id, ref.choose));
+  const players = state.turnOrder.filter((id) => matchesFilter(state, frame.self, id, ref.choose) && eligible(id));
   ask(defs, state, frame, key, { player: frame.self, kind: "choosePlayer", prompt, options: decisionOptions(state, { players }), discard: false }, events);
   return undefined;
 }
@@ -279,6 +390,10 @@ function matchesFilter(state: GameState, me: PlayerId, id: PlayerId, filter: Pla
 
 function sourceName(defs: CardIndex, state: GameState, frame: EffectFrame): string {
   return defs.get(state.cards[frame.source]!)?.name ?? "Effect";
+}
+
+function heroes(n: number): string {
+  return n === 1 ? "1 hero" : `${n} heroes`;
 }
 
 function cards(n: number): string {

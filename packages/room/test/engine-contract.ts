@@ -19,11 +19,13 @@ export interface RoomEngineContractOptions<State> {
    */
   hiddenCards(state: State, viewer: PlayerId | "spectator"): string[];
   /**
-   * The ids of cards these unfiltered events show face up to everyone, such
-   * as a discard. Events may name them even when the action hides them again,
-   * as when a discarded card is shuffled back into the deck. Default: none.
+   * The ids of cards these unfiltered events rightly show `viewer`: face up
+   * to everyone, such as a discard, or to a few players, such as a card
+   * pulled from the viewer's own hand. Events may name them even when the
+   * action hides them again, as when a discarded card is shuffled back into
+   * the deck. Default: none.
    */
-  faceUpInEvents?(events: readonly GameEvent[]): string[];
+  faceUpInEvents?(events: readonly GameEvent[], viewer: PlayerId | "spectator"): string[];
   /** The config patch every game starts with. Default: none. */
   config?: ConfigPatch;
   /**
@@ -164,9 +166,8 @@ export function describeRoomEngineContract<State>(name: string, opts: RoomEngine
         if (legal.length === 0) break;
         const r = engine.applyAction(state, legal[Math.floor(pick() * legal.length)]!);
         state = r.state;
-        const faceUp = faceUpInEvents?.(r.events) ?? [];
         for (const viewer of viewers) {
-          expectNoLeak(viewer, "the events", engine.getPlayerEvents(r.events, viewer), faceUp);
+          expectNoLeak(viewer, "the events", engine.getPlayerEvents(r.events, viewer), faceUpInEvents?.(r.events, viewer) ?? []);
           expectNoLeak(viewer, "the view", engine.getPlayerView(state, viewer));
         }
       }

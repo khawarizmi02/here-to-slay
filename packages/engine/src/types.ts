@@ -63,7 +63,7 @@ export interface PendingDecision {
   /** From an RNG-free counter. */
   id: string;
   player: PlayerId;
-  kind: "chooseLeader" | "chooseCardFromHand" | "choosePlayer" | "chooseOption" | "confirmOptional";
+  kind: "chooseLeader" | "chooseCardFromHand" | "choosePlayer" | "chooseHero" | "chooseOption" | "confirmOptional";
   /** What the game does with the answer; `kind` only says what is being chosen. "stack" hands it to the frame on top of the stack. */
   resume: "leaderDraft" | "handLimitDiscard" | "stack";
   prompt: string;
@@ -182,6 +182,16 @@ export type GameEvent =
   | { type: "TURN_ENDED"; player: PlayerId }
   | { type: "CARD_DISCARDED"; player: PlayerId; card: CardView }
   | { type: "HERO_PLAYED"; player: PlayerId; card: CardView }
+  /** `player` took `hero` from `from`'s party into their own; `item` is the item that came with it. */
+  | { type: "HERO_STOLEN"; player: PlayerId; from: PlayerId; hero: CardView; item: CardView | null }
+  /** `player` destroyed `owner`'s hero: it and its `item` went to the discard pile. */
+  | { type: "HERO_DESTROYED"; player: PlayerId; owner: PlayerId; hero: CardView; item: CardView | null }
+  /** `player` sacrificed their own hero: it and its `item` went to the discard pile. */
+  | { type: "HERO_SACRIFICED"; player: PlayerId; hero: CardView; item: CardView | null }
+  /** A stolen hero's item went to the discard pile instead of moving with it (`itemFollowsStolenHero` off). */
+  | { type: "ITEM_DISCARDED"; player: PlayerId; item: CardView }
+  /** `player` took a random card from `from`'s hand. `card` is present only in their two copies of the event. */
+  | { type: "CARD_PULLED"; player: PlayerId; from: PlayerId; card?: CardView }
   /** A hero's effect roll: `bonus` is from passives, and the roll succeeds when `total` is at least the hero's requirement. */
   | {
       type: "DICE_ROLLED";

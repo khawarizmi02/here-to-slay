@@ -101,7 +101,7 @@ describe("a Room on the real engine", () => {
     host.send({ t: "setConfig", config: { firstPlayerMethod: "firstSeat", handLimit: 5 } });
     host.send({ t: "startGame" });
 
-    const rounds = 10;
+    const rounds = 12;
     const turnsStarted = new Map<string, number>();
     let discards = 0;
     let answered = 0;

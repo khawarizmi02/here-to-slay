@@ -18,9 +18,26 @@ function hiddenCards(state: GameState, viewer: PlayerId | "spectator"): string[]
   ];
 }
 
-/** Discards are face up, even when a reshuffle in the same action puts them back in the deck. */
-function faceUpInEvents(events: readonly ProtocolEvent[]): string[] {
-  return (events as GameEvent[]).flatMap((e) => (e.type === "CARD_DISCARDED" ? [e.card.id] : []));
+/**
+ * Discards are face up, even when a reshuffle in the same action puts them
+ * back in the deck. A pulled card is known to the player it was pulled from.
+ */
+function faceUpInEvents(events: readonly ProtocolEvent[], viewer: PlayerId | "spectator"): string[] {
+  return (events as GameEvent[]).flatMap((e) => {
+    switch (e.type) {
+      case "CARD_DISCARDED":
+        return [e.card.id];
+      case "ITEM_DISCARDED":
+        return [e.item.id];
+      case "HERO_DESTROYED":
+      case "HERO_SACRIFICED":
+        return [e.hero.id, ...(e.item ? [e.item.id] : [])];
+      case "CARD_PULLED":
+        return e.from === viewer && e.card ? [e.card.id] : [];
+      default:
+        return [];
+    }
+  });
 }
 
 // Response Windows arrive in M3 (#47, #48).
