@@ -8,6 +8,10 @@ A digital version of the *Here to Slay* card game for friends playing together, 
 One pick that the game asks one player to make, such as a card to discard or a hero to steal. Every Decision is exactly one pick. Choosing several cards is a chain of Decisions, one per card. A "you may" Decision includes an explicit Decline option.
 _Avoid_: Prompt, multi-select, choice (a `choice` is an effect op)
 
+**Response Window**:
+A pause in which several players may each answer with a card or pass. A Challenge Window follows a Hero, Item or Magic card being played and is open to everyone except the player who played it. A Modifier Window follows a roll and is open to every player, the roller included. Any response reopens the window to everyone. It closes once everyone in it has passed since the last response.
+_Avoid_: Interrupt, prompt (a Response Window is not a Decision)
+
 ## Multiplayer
 
 **Room**:
