@@ -1,4 +1,4 @@
-import type { Action, ConfigPatch, PlayerId } from "@here-to-slay/protocol";
+import type { Action, ConfigPatch, GameEvent, PlayerId } from "@here-to-slay/protocol";
 import { describe, expect, it } from "vitest";
 import type { RoomEngine } from "../src/index.js";
 
@@ -18,6 +18,12 @@ export interface RoomEngineContractOptions<State> {
    * players' hands, face-down decks and the like. A spectator sees no hand.
    */
   hiddenCards(state: State, viewer: PlayerId | "spectator"): string[];
+  /**
+   * The ids of cards these unfiltered events show face up to everyone, such
+   * as a discard. Events may name them even when the action hides them again,
+   * as when a discarded card is shuffled back into the deck. Default: none.
+   */
+  faceUpInEvents?(events: readonly GameEvent[]): string[];
   /** The config patch every game starts with. Default: none. */
   config?: ConfigPatch;
   /**
@@ -39,7 +45,7 @@ const SPECTATOR = "spectator";
 const POOL_SIZE = 40;
 
 export function describeRoomEngineContract<State>(name: string, opts: RoomEngineContractOptions<State>): void {
-  const { engine, hiddenCards } = opts;
+  const { engine, hiddenCards, faceUpInEvents } = opts;
   const seeds = opts.seeds ?? ["contract-a", "contract-b", "contract-c"];
   const playerCounts = opts.playerCounts ?? [2, 4];
   const maxSteps = opts.maxSteps ?? 200;
@@ -78,15 +84,16 @@ export function describeRoomEngineContract<State>(name: string, opts: RoomEngine
   describe(`RoomEngine contract: ${name}`, () => {
     it.each(games)("leaves the state unchanged when it rejects an action (seed $seed, $count players)", ({ seed, count }) => {
       play(seed, count, (state, players, pool) => {
+        // Engine states are plain JSON, so comparing serialisations is exact, and far cheaper than a deep equal per action.
+        const before = JSON.stringify(state);
         for (const player of players) {
           for (const action of illegalFor(engine, state, player, pool)) {
-            const before = clone(state);
             const r = engine.applyAction(state, action);
             expect(r.ok, `${JSON.stringify(action)} is not legal but was accepted`).toBe(false);
             expect(r.error, "a rejection says why").toBeTruthy();
             expect(r.events).toEqual([]);
-            expect(r.state).toEqual(before);
-            expect(state, "a rejected action must not mutate the state").toEqual(before);
+            if (r.state !== state) expect(JSON.stringify(r.state), `${JSON.stringify(action)} was rejected with a changed state`).toBe(before);
+            expect(JSON.stringify(state), `rejecting ${JSON.stringify(action)} mutated the state`).toBe(before);
           }
         }
       });
@@ -142,9 +149,11 @@ export function describeRoomEngineContract<State>(name: string, opts: RoomEngine
       const pick = seededRandom(`picker:${seed}:${count}`);
       const viewers: (PlayerId | "spectator")[] = [...players, SPECTATOR];
       let hiddenSeen = 0;
-      const expectNoLeak = (viewer: PlayerId | "spectator", what: string, value: unknown) => {
+      /** `faceUp`: cards shown to everyone along the way, which may be hidden again by the end of the action. */
+      const expectNoLeak = (viewer: PlayerId | "spectator", what: string, value: unknown, faceUp: readonly string[] = []) => {
         const json = JSON.stringify(value);
         for (const id of hiddenCards(state, viewer)) {
+          if (faceUp.includes(id)) continue;
           hiddenSeen++;
           expect(json.includes(JSON.stringify(id)), `${what} for ${viewer} shows hidden card ${id}`).toBe(false);
         }
@@ -155,8 +164,9 @@ export function describeRoomEngineContract<State>(name: string, opts: RoomEngine
         if (legal.length === 0) break;
         const r = engine.applyAction(state, legal[Math.floor(pick() * legal.length)]!);
         state = r.state;
+        const faceUp = faceUpInEvents?.(r.events) ?? [];
         for (const viewer of viewers) {
-          expectNoLeak(viewer, "the events", engine.getPlayerEvents(r.events, viewer));
+          expectNoLeak(viewer, "the events", engine.getPlayerEvents(r.events, viewer), faceUp);
           expectNoLeak(viewer, "the view", engine.getPlayerView(state, viewer));
         }
       }

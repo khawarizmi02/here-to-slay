@@ -1,9 +1,12 @@
-import type { CardDefId } from "@here-to-slay/cards";
+import type { CardDef, CardDefId } from "@here-to-slay/cards";
 import type { Action, CardInstanceId, PlayerId } from "@here-to-slay/protocol";
 import type { RuleConfig } from "./config.js";
 import type { RngState } from "./rng.js";
 
 export type { Action, CardInstanceId, CardDefId, PlayerId };
+
+/** The game's card definitions by id. The engine binds them once, in `createRoomEngine`; they never live in GameState. */
+export type CardIndex = ReadonlyMap<CardDefId, CardDef>;
 
 /** TECHNICAL_DESIGN.md §4.3. */
 export interface HeroInPlay {
@@ -26,8 +29,15 @@ export interface PlayerState {
 /**
  * §6.3. The only setup step a player sees is the leader draft: the
  * first-player roll needs no input, so it happens as soon as it is reached.
+ * Likewise the start of a turn needs no input, so no state is ever in it,
+ * and the end of a turn is a phase only while a hand-limit discard waits.
  */
-export type Phase = { kind: "setup"; step: "leaderSelect" } | { kind: "action" } | { kind: "gameOver" };
+export type Phase =
+  | { kind: "setup"; step: "leaderSelect" }
+  | { kind: "action" }
+  /** The active player is discarding down to the hand limit; `discarded` counts their picks so far. */
+  | { kind: "turnEnd"; discarded: number }
+  | { kind: "gameOver" };
 
 /** One thing a Decision offers. `id` is the id of the thing chosen: a player id or a card instance id (§6.4). */
 export interface DecisionOption {
@@ -44,7 +54,9 @@ export interface PendingDecision {
   /** From an RNG-free counter. */
   id: string;
   player: PlayerId;
-  kind: "chooseLeader";
+  kind: "chooseLeader" | "chooseCardFromHand";
+  /** What the game does with the answer; `kind` only says what is being chosen. */
+  resume: "leaderDraft" | "handLimitDiscard";
   prompt: string;
   options: DecisionOption[];
   /** Whether the pick gives up the chooser's own card: the Room picks a random answer for it on a timeout. */
@@ -104,7 +116,12 @@ export type GameEvent =
   /** `card` is present only in the drawer's copy of the event. */
   | { type: "CARD_DRAWN"; player: PlayerId; card?: CardView }
   | { type: "LEADER_CHOSEN"; player: PlayerId; leader: CardView }
-  | { type: "FIRST_PLAYER_ROLLED"; rounds: FirstPlayerRoll[][]; firstPlayer: PlayerId };
+  | { type: "FIRST_PLAYER_ROLLED"; rounds: FirstPlayerRoll[][]; firstPlayer: PlayerId }
+  | { type: "TURN_STARTED"; player: PlayerId; turnNumber: number }
+  | { type: "TURN_ENDED"; player: PlayerId }
+  | { type: "CARD_DISCARDED"; player: PlayerId; card: CardView }
+  /** The discard pile was shuffled into a new main deck of `cards` cards. */
+  | { type: "DECK_RESHUFFLED"; cards: number };
 
 export interface ApplyResult {
   ok: boolean;

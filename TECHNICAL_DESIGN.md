@@ -565,6 +565,8 @@ export interface ApplyResult {
 export function getPlayerView(state: GameState, playerId: PlayerId | "spectator"): PlayerView;
 ```
 
+`getLegalActions`, `applyAction` and `getPlayerView` read card definitions (for passives such as `modifyActionCost`), and card definitions never live in `GameState`. So the engine exports only `createGame` and `createRoomEngine`; the bound functions above are the methods of the object `createRoomEngine` returns.
+
 The Room uses the engine through `createRoomEngine(cardDefs)`, which binds the card definitions and returns an object matching the Room's `RoomEngine` interface without importing `packages/room`. Its `cardDefsVersion` is a hash of the card definitions (ADR-0003). `createGame` validates the Room's config patch with a strict schema and throws on an unknown key or a wrong type.
 
 Properties of `applyAction`:
@@ -623,13 +625,15 @@ export type Action =
 
 ```ts
 export type Phase =
-  | { kind: "setup"; step: "leaderSelect" | "firstPlayerRoll" }
-  | { kind: "turnStart" }
+  | { kind: "setup"; step: "leaderSelect" }
   | { kind: "action" }
-  | { kind: "resolving" }   // stack is processing
-  | { kind: "turnEnd" }
+  | { kind: "turnEnd"; discarded: number } // waiting on hand-limit discards; `discarded` counts picks so far
   | { kind: "gameOver" };
 ```
+
+Only phases that can wait on a player are stored. The first-player roll, the start of a turn, and an end of turn with no discard to make need no input, so they run straight through and no state is ever left in them. `resolving` arrives with the stack (#42).
+
+At the end of a turn, end-of-turn hooks run first and then the hand-limit discard, so nobody passes the turn over the limit. Each discard is one Decision ("Discard down to your hand limit of 7 (1 of 2)").
 
 After AP reaches 0, the turn does **not** end until the stack is empty and no decision is pending.
 

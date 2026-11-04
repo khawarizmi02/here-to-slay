@@ -1,8 +1,10 @@
 import { buildDeck, type CardDef, type CardType } from "@here-to-slay/cards";
 import { resolveConfig } from "./config.js";
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
+import { playerState } from "./players.js";
 import { createRng, nextInt, rollD6, shuffle, type RngState } from "./rng.js";
-import type { CardInstanceId, FirstPlayerRoll, GameEvent, GameState, PlayerId, PlayerState } from "./types.js";
+import { startTurn } from "./turns.js";
+import type { CardIndex, CardInstanceId, FirstPlayerRoll, GameEvent, GameState, PlayerId, PlayerState } from "./types.js";
 
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 6;
@@ -98,7 +100,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     winReason: null,
   };
   // createGame reports no events: the opening view shows everything they would.
-  continueSetup(state, []);
+  continueSetup(new Map(cardDefs.map((d) => [d.id, d])), state, []);
   return state;
 }
 
@@ -106,15 +108,17 @@ export function createGame(opts: CreateGameOptions): GameState {
  * Runs setup on from the leader draft: asks the next drafter, or, once every
  * player has a leader, chooses the first player and starts the first turn.
  */
-export function continueSetup(state: GameState, events: GameEvent[]): void {
+export function continueSetup(defs: CardIndex, state: GameState, events: GameEvent[]): void {
   const drafter = state.players.find((p) => p.leader === null);
   if (drafter) {
     state.activePlayer = drafter.id;
     openDecision(
+      defs,
       state,
       {
         player: drafter.id,
         kind: "chooseLeader",
+        resume: "leaderDraft",
         prompt: "Choose your Party Leader",
         options: decisionOptions(state, { cards: state.leaderPool }),
         discard: false,
@@ -139,18 +143,17 @@ export function continueSetup(state: GameState, events: GameEvent[]): void {
     events.push({ type: "FIRST_PLAYER_ROLLED", rounds, firstPlayer: winner });
   }
   state.turnOrder = [...ids.slice(first), ...ids.slice(0, first)];
-  state.activePlayer = state.turnOrder[0]!;
-  state.phase = { kind: "action" };
+  startTurn(defs, state, state.turnOrder[0]!, events);
 }
 
 /** A drafter's pick: the leader leaves the pool, and setup runs on. */
-export const leaderChosen: DecisionResolver = (state, decision, choice, events) => {
+export const leaderChosen: DecisionResolver = (defs, state, decision, choice, events) => {
   // The draft never opens with an empty pool: createGame checks there are enough leaders.
   if (choice === null) throw new Error("No Party Leader left to draft");
-  state.players.find((p) => p.id === decision.player)!.leader = choice;
+  playerState(state, decision.player).leader = choice;
   state.leaderPool = state.leaderPool.filter((id) => id !== choice);
   events.push({ type: "LEADER_CHOSEN", player: decision.player, leader: { id: choice, def: state.cards[choice]! } });
-  continueSetup(state, events);
+  continueSetup(defs, state, events);
 };
 
 /**

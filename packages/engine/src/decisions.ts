@@ -1,7 +1,13 @@
-import type { DecisionOption, GameEvent, GameState, PendingDecision, PlayerId } from "./types.js";
+import type { CardIndex, DecisionOption, GameEvent, GameState, PendingDecision, PlayerId } from "./types.js";
 
 /** Carries on from a Decision with the chosen option's id, or null when the Decision was skipped for having no option. */
-export type DecisionResolver = (state: GameState, decision: PendingDecision, choice: string | null, events: GameEvent[]) => void;
+export type DecisionResolver = (
+  defs: CardIndex,
+  state: GameState,
+  decision: PendingDecision,
+  choice: string | null,
+  events: GameEvent[],
+) => void;
 
 /**
  * The options for a Decision over `players` and `cards`, in the order the
@@ -21,6 +27,7 @@ export function decisionOptions(state: GameState, opts: { players?: readonly Pla
  * runs straight away. Otherwise the game waits for a RESOLVE_DECISION.
  */
 export function openDecision(
+  defs: CardIndex,
   state: GameState,
   spec: Omit<PendingDecision, "id">,
   events: GameEvent[],
@@ -31,5 +38,5 @@ export function openDecision(
     state.pendingDecision = decision;
     return;
   }
-  resolve(state, decision, decision.options[0]?.id ?? null, events);
+  resolve(defs, state, decision, decision.options[0]?.id ?? null, events);
 }

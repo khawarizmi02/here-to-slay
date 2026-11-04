@@ -1,5 +1,5 @@
 import { placeholderCardDefs } from "@here-to-slay/cards";
-import { createRoomEngine, type GameState, type PlayerView } from "@here-to-slay/engine";
+import { createRoomEngine, type GameEvent, type GameState, type PlayerView } from "@here-to-slay/engine";
 import { describe, expect, it } from "vitest";
 import { Room } from "../src/index.js";
 import { Client, FakeClock, FakeTimers, seededRandom } from "./harness.js";
@@ -86,8 +86,44 @@ describe("a Room on the real engine", () => {
     expect(view.phase).toEqual({ kind: "action" });
     expect(view.pendingDecision).toBeNull();
     expect(view.firstPlayerRolls).not.toBeNull();
-    expect([alice, bot]).toContain(view.activePlayer);
-    expect(view.turnOrder[0]).toBe(view.activePlayer);
+    expect(view.turnOrder).toHaveLength(2);
+    expect(view.turnOrder).toEqual(expect.arrayContaining([alice, bot]));
+    // If the bot won the roll, it has already played its first turn.
+    expect(view.activePlayer).toBe(alice);
+    expect(view.turnNumber).toBe(view.turnOrder[0] === alice ? 1 : 2);
+  });
+
+  it("lets bots take their turns, round after round, without stalling", () => {
+    const { host, seatIds } = realRoom([], 3);
+    const alice = seatIds[0]!;
+    // Alice keeps her 5 cards; a bot that draws has hand-limit discards to make.
+    host.send({ t: "setConfig", config: { firstPlayerMethod: "firstSeat", handLimit: 5 } });
+    host.send({ t: "startGame" });
+
+    const rounds = 10;
+    const turnsStarted = new Map<string, number>();
+    let discards = 0;
+    let view = viewOf(host);
+    for (let round = 1; round <= rounds; round++) {
+      // Every bot move runs straight away, so each time the Room settles it is Alice's turn again.
+      expect(view.activePlayer).toBe(alice);
+      expect(view.phase).toEqual({ kind: "action" });
+      expect(view.turnNumber).toBe(1 + (round - 1) * seatIds.length);
+      host.take();
+      host.send({ t: "action", seat: alice, action: { type: "END_TURN", player: alice }, clientSeq: round - 1 });
+      const updates = host.take().filter((m) => m.t === "update");
+      for (const msg of updates) {
+        for (const e of msg.events as GameEvent[]) {
+          if (e.type === "TURN_STARTED") turnsStarted.set(e.player, (turnsStarted.get(e.player) ?? 0) + 1);
+          if (e.type === "CARD_DISCARDED") discards++;
+        }
+      }
+      view = updates.at(-1)!.view as PlayerView;
+    }
+    // Every Seat started a turn each round: Alice's first turn began at setup, and her next one has begun.
+    expect(Object.fromEntries(turnsStarted)).toEqual(Object.fromEntries(seatIds.map((s) => [s, rounds])));
+    expect(view.activePlayer).toBe(alice);
+    expect(discards, "no bot ever discarded, so the hand limit went untested").toBeGreaterThan(0);
   });
 
   it("stays in the lobby, naming the key, when the engine rejects the config", () => {

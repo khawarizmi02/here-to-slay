@@ -121,8 +121,8 @@ describe("player views", () => {
 describe("actions and events", () => {
   const state = start({ firstPlayerMethod: "firstSeat" });
 
-  it("rejects actions before the turn loop exists, leaving the state alone", () => {
-    const r = engine.applyAction(state, { type: "END_TURN", player: "p1" });
+  it("rejects an action it doesn't allow, leaving the state alone", () => {
+    const r = engine.applyAction(state, { type: "END_TURN", player: "p2" });
     expect(r).toMatchObject({ ok: false, state, events: [] });
     expect(r.error).toBeTruthy();
   });
