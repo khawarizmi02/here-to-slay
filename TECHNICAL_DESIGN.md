@@ -122,10 +122,11 @@ This section is the engine's rules contract. Rules marked ⚙️ are config flag
 - **Discard pile:** shared, for main deck cards. Slain monsters stay with the player who slew them.
 
 ### 3.2 Setup
-1. Each player receives a Party Leader. Modes: random, or draft in turn order. ⚙️ `leaderSelection`
-2. Shuffle the main deck and deal 5 cards to each player.
+1. Shuffle the main deck and deal 5 cards to each player.
+2. Each player receives a Party Leader. Modes: random, or draft in Seat order (the order of `createGame`'s `players`), because turn order doesn't exist yet. ⚙️ `leaderSelection`
 3. Shuffle the monster deck and reveal 3 monsters face-up in the centre.
-4. Choose the first player. Default: every player rolls 2d6, highest goes first, ties reroll. ⚙️ `firstPlayerMethod`
+4. Choose the first player. Default: every player rolls 2d6 at once, highest goes first, and players tied for highest reroll. The first-player roll never opens a Modifier Window. `"firstSeat"` makes the first player in `players` go first (the Room seats the Host first, so this means the Host goes first). ⚙️ `firstPlayerMethod`
+5. Turn order is clockwise from the first player.
 
 ### 3.3 Win conditions
 Checked immediately after any state change, not just at end of turn:
@@ -157,10 +158,11 @@ Additional rules:
 - Each hero can attempt its roll **once per turn**, whether or not it succeeded. Track this with `hero.rolledThisTurn`.
 - A hero that is stolen or moved keeps its per-turn roll flag for that turn. ⚙️ `rollFlagFollowsHero` (default `true`)
 - **AP is spent when an action is declared.** If the action is Challenged successfully, the AP is not refunded.
-- When a monster is slain, it moves to the player's slain pile, and a new monster is revealed from the monster deck.
+- When a monster is slain, it moves to the player's slain pile, and a new monster is revealed from the monster deck straight away.
+- If the monster deck is empty, the slot stays empty. A class win is still possible.
 
 ### 3.6 Modifier cards
-- Any player, including the roller, may play Modifier cards on **any roll**: hero effects, monster attacks, challenge rolls, and the first-player roll if that flag is enabled.
+- Any player, including the roller, may play Modifier cards on **any roll**: hero effects, monster attacks, and challenge rolls. The first-player roll takes no modifiers.
 - Each Modifier card offers one or more options, such as `+2` or `−2`. The player who plays it picks one option.
 - Multiple modifiers can be played on the same roll by any players.
 - Playing a Modifier costs no AP, including on your own turn.
@@ -214,7 +216,7 @@ export interface RuleConfig {
   leaderCountsForRequirements: boolean; // true — VERIFY
   winCheckTiming: "immediate" | "endOfAction"; // "immediate"
   leaderSelection: "random" | "draft"; // "random"
-  firstPlayerMethod: "roll" | "random" | "host"; // "roll"
+  firstPlayerMethod: "roll" | "random" | "firstSeat"; // "roll"
   responseWindowMs: number;            // 8000 (remote Seats only; local Seats have no countdown)
   reshuffleDiscardWhenDeckEmpty: boolean; // true
 }
@@ -559,6 +561,8 @@ export interface ApplyResult {
 export function getPlayerView(state: GameState, playerId: PlayerId | "spectator"): PlayerView;
 ```
 
+The Room uses the engine through `createRoomEngine(cardDefs)`, which binds the card definitions and returns an object matching the Room's `RoomEngine` interface without importing `packages/room`. Its `cardDefsVersion` is a hash of the card definitions (ADR-0003). `createGame` validates the Room's config patch with a strict schema and throws on an unknown key or a wrong type.
+
 Properties of `applyAction`:
 - **Pure:** never mutates its input. Use Immer (`produce`) internally for convenience.
 - **Validating:** rejects illegal actions with an error and leaves state unchanged.
@@ -579,7 +583,7 @@ export type Action =
   | { type: "END_TURN"; player: PlayerId }
   // Responses (any player, during a response window)
   | { type: "PLAY_CHALLENGE"; player: PlayerId; card: CardInstanceId }
-  | { type: "PLAY_MODIFIER"; player: PlayerId; card: CardInstanceId; value: number }
+  | { type: "PLAY_MODIFIER"; player: PlayerId; card: CardInstanceId; value: number; roll?: string } // roll id; needed when a Modifier Window holds two rolls (a Challenge)
   | { type: "PASS"; player: PlayerId }
   // Answers to prompts
   | { type: "RESOLVE_DECISION"; player: PlayerId; decisionId: string; answer: DecisionAnswer };
@@ -627,7 +631,7 @@ After AP reaches 0, the turn does **not** end until the stack is empty and no de
 
 ### 6.4 Pending decisions (the prompt system)
 
-Every point where a human must choose becomes a `PendingDecision`. The engine stops and waits for a `RESOLVE_DECISION` action.
+Every point where a human must choose becomes a `PendingDecision`: one **Decision** (see `GLOSSARY.md`). Every Decision is exactly one pick. Choosing several cards is a chain of Decisions, one per card ("Choose a card to discard (1 of 3)"), so `getLegalActions` lists one `RESOLVE_DECISION` per option and never has to list combinations. The engine stops and waits for a `RESOLVE_DECISION` action.
 
 ```ts
 export interface PendingDecision {
@@ -636,22 +640,23 @@ export interface PendingDecision {
   kind:
     | "choosePlayer"
     | "chooseHero"
-    | "chooseCardsFromHand"
-    | "chooseCardsFromList"   // e.g. search discard
+    | "chooseCardFromHand"
+    | "chooseCardFromList"    // e.g. search discard
     | "chooseOption"          // effect choice / modifier option
     | "confirmOptional"       // "you may..."
     | "chooseLeader";
   prompt: string;             // UI text
   options: DecisionOption[];  // legal choices, precomputed by engine
-  min: number;                // number of selections
-  max: number;
   context: Record<string, unknown>; // for resuming the effect
 }
 ```
 
 **Rules:**
 - The engine precomputes **all legal options**. The client only renders them, and bots pick from them.
-- If exactly one legal option exists and `min === max === 1`, auto-resolve it. Make this a user setting; it's on by default for bots.
+- An option's id is the id of the thing chosen (a player id or card instance id). Options only ever list things the chooser can see.
+- A "you may" Decision has an explicit Decline option.
+- **Option order is a rule**, because the Room answers a timed-out remote Seat's Decision with the first legal answer, or a random one when `isDiscardDecision` is true. Decline comes first in every "you may" Decision. Other options are listed players in turn order, then cards by instance id. `isDiscardDecision` is true for any pick that gives up the chooser's own card (discard, hand-limit discard, sacrifice).
+- If exactly one legal option exists, auto-resolve it. Make this a user setting; it's on by default for bots.
 - If no legal options exist, skip the step. For example, "steal a hero" when nobody has heroes does nothing.
 
 ### 6.5 Effect interpreter
@@ -712,9 +717,9 @@ The top of the stack is the last element. The engine always processes the top fr
 4a. All pass → pop window → resolve cardPlay: hero enters party.
     If freeRollOnHeroPlay, offer P1 confirmOptional "Roll for this hero's effect?"
 4b. P2 plays Challenge → pop window → push challengeDuel.
-    - Push roll frame for challenger (modifier window opens after dice).
-    - Push roll frame for defender.
-    - Compare totals. Challenger wins → card to discard, cardPlay marked failed.
+    - Challenger and defender both roll, then one Modifier Window opens on both rolls.
+      Each PLAY_MODIFIER names the roll it targets (`roll`). RULE-CHECK: Section 15.
+    - When everyone has passed, compare totals. Challenger wins → card to discard, cardPlay marked failed.
       Defender wins → resolve cardPlay normally.
 5. Check win conditions.
 ```
@@ -808,7 +813,9 @@ The full `GameState` exists only in the Host's Room and is **never** sent over t
 | Cards seen via LOOK effects | Shown in their decision prompt only | — |
 | Legal actions | Full, in `legalActions` | — |
 
-Card instances in hands are **redacted**. Other players get placeholder IDs, so they cannot track a specific card instance as it moves around.
+Other players' hands appear **only as a count**, with no card ids, so nobody can track a card instance as it moves around. PULL takes a random card using the engine's RNG, with no Decision; `CARD_PULLED` shows the card only to the two players involved. Cards shown by LOOK or a search appear only in that player's Decision.
+
+Every `PlayerView` carries a public `responseWindow: { kind: "challenge" | "modifier"; awaiting: PlayerId[] } | null`. The engine offers `PASS` to everyone in a window, whatever they hold, and the Room decides whom to interrupt (Section 7.4).
 
 Events are filtered the same way: `CARD_DRAWN` shows the card to the drawer and only "P1 drew a card" to everyone else.
 
@@ -1082,7 +1089,7 @@ Render cards with HTML/CSS (title, class icon, roll number, text) so placeholder
 - Each hero holds at most one item.
 - A player with `winner` set means the phase is `gameOver`.
 - `getLegalActions` never returns an action that `applyAction` rejects.
-- Every game ends within N actions (no infinite loops).
+- Every game ends within 5,000 actions. Fuzz bots pick a random legal action and only `END_TURN` when nothing else is legal. A game that hits the cap fails and reports its seed. The engine has no draw rule.
 
 ### 13.2 Scenario test helper
 
@@ -1102,7 +1109,7 @@ const r = run(s, [
 expect(r.state.players[0].party).toHaveLength(2);
 ```
 
-The `nextDice` helper requires an RNG override hook that is only available in tests.
+`nextDice` fills a queue of forced dice in the RNG state, used before the seeded generator. Only `scenario()` fills it; `createGame` leaves it empty.
 
 ---
 
@@ -1155,14 +1162,12 @@ Defaults are in place, but the owner should check these against the printed rule
 2. **Free roll on hero play:** does playing a Hero let you immediately roll its effect within the same action? (`freeRollOnHeroPlay`)
 3. **Start-of-turn draw:** is there a free draw at the start of each turn? (`drawAtStartOfTurn`)
 4. **Leader for monster requirements:** does the Party Leader count toward requirements such as "2 heroes" or "1 Fighter"? (`leaderCountsForRequirements`)
-5. **AP refund:** is AP lost when a played card is successfully challenged? (Assumed lost.)
-6. **Stolen hero's roll flag:** can a stolen hero be rolled again by its new owner in the same turn? (`rollFlagFollowsHero`)
-7. **Stolen hero's item:** does the item move with a stolen hero? (`itemFollowsStolenHero`)
-8. **Modifier timing:** can modifiers be played after other modifiers in any order until everyone passes? (Assumed yes.)
-9. **Monster replacement timing:** is a new monster revealed immediately after a slay, or at end of turn? (Assumed immediately.)
-10. **Empty monster deck:** what happens? (Assumed: the slot stays empty.)
-11. **Mid-effect win:** does the game end the instant a win condition is met, even on another player's turn? (`winCheckTiming`)
-12. **Hand-limit discard:** chosen by the player? (Assumed yes.)
+5. **Stolen hero's roll flag:** can a stolen hero be rolled again by its new owner in the same turn? (`rollFlagFollowsHero`)
+6. **Stolen hero's item:** does the item move with a stolen hero? (`itemFollowsStolenHero`)
+7. **Modifier timing:** can modifiers be played after other modifiers in any order until everyone passes? (Assumed yes.)
+8. **Mid-effect win:** does the game end the instant a win condition is met, even on another player's turn? (`winCheckTiming`)
+9. **Hand-limit discard:** chosen by the player? (Assumed yes.)
+10. **Modifiers in a Challenge:** do both players roll first, with one Modifier Window in which any player may modify either roll? (Assumed yes. `PLAY_MODIFIER` names its target roll.)
 
 When a rule is confirmed, update the default value in `config/defaults.ts` and remove it from this list.
 
