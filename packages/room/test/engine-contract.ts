@@ -1,4 +1,4 @@
-import type { Action, PlayerId } from "@here-to-slay/protocol";
+import type { Action, ConfigPatch, PlayerId } from "@here-to-slay/protocol";
 import { describe, expect, it } from "vitest";
 import type { RoomEngine } from "../src/index.js";
 
@@ -18,6 +18,13 @@ export interface RoomEngineContractOptions<State> {
    * players' hands, face-down decks and the like. A spectator sees no hand.
    */
   hiddenCards(state: State, viewer: PlayerId | "spectator"): string[];
+  /** The config patch every game starts with. Default: none. */
+  config?: ConfigPatch;
+  /**
+   * Whether the engine opens Response Windows yet. When false, the suite
+   * checks that no player is ever offered PASS instead. Default: true.
+   */
+  opensResponseWindows?: boolean;
   /** Seeds of the random games. Default: three seeds. */
   seeds?: string[];
   /** Player counts to play each seed at. Default: 2 and 4. */
@@ -36,12 +43,14 @@ export function describeRoomEngineContract<State>(name: string, opts: RoomEngine
   const seeds = opts.seeds ?? ["contract-a", "contract-b", "contract-c"];
   const playerCounts = opts.playerCounts ?? [2, 4];
   const maxSteps = opts.maxSteps ?? 200;
+  const config = opts.config ?? {};
+  const opensResponseWindows = opts.opensResponseWindows ?? true;
 
   const games = seeds.flatMap((seed) => playerCounts.map((count) => ({ seed, count })));
 
   function newGame(seed: string, count: number): { state: State; players: PlayerId[] } {
     const players = Array.from({ length: count }, (_, i) => ({ id: `s${i + 1}`, name: `Player ${i + 1}`, isBot: false }));
-    return { state: engine.createGame({ players, seed, config: {} }), players: players.map((p) => p.id) };
+    return { state: engine.createGame({ players, seed, config: { ...config } }), players: players.map((p) => p.id) };
   }
 
   /** Plays one seeded random game, calling `check` on every state before its action. */
@@ -112,7 +121,8 @@ export function describeRoomEngineContract<State>(name: string, opts: RoomEngine
           }
         }
       });
-      expect(windows, "the game never opened a Response Window").toBeGreaterThan(0);
+      if (opensResponseWindows) expect(windows, "the game never opened a Response Window").toBeGreaterThan(0);
+      else expect(windows, "PASS was offered, but the engine is said to open no Response Windows").toBe(0);
     });
 
     it.each(games)("puts legalActions in every PlayerView (seed $seed, $count players)", ({ seed, count }) => {
