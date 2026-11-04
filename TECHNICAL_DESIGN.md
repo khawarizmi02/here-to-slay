@@ -806,10 +806,13 @@ The full `GameState` exists only in the Host's Room and is **never** sent over t
 | RNG state | **Never sent** (in the Host's tab only) | **Never sent** |
 | Pending decision | Full if it's theirs | "Waiting for P2 to choose…" |
 | Cards seen via LOOK effects | Shown in their decision prompt only | — |
+| Legal actions | Full, in `legalActions` | — |
 
 Card instances in hands are **redacted**. Other players get placeholder IDs, so they cannot track a specific card instance as it moves around.
 
 Events are filtered the same way: `CARD_DRAWN` shows the card to the drawer and only "P1 drew a card" to everyone else.
+
+Every `PlayerView` carries `legalActions: Action[]`, filled from `getLegalActions` for that player (`[]` for a spectator). `getLegalActions` needs the full state, which only the Host's tab has, so this is how a client learns what its player may do without containing any game rules.
 
 ---
 
@@ -952,6 +955,7 @@ Rules:
 ### 10.7 Persistence & reconnection
 
 - **Host refresh:** after every applied action, the Room saves `{ roomCode, seed, config, seats, cardDefsVersion, actions[] }` to IndexedDB. On reload, the Host reconnects to the relay with `hostToken`, rebuilds the state by replaying the log (Section 8.3), and sends every Seat a fresh `update`. Any open deadlines restart from their full duration.
+- **Host refresh in the lobby:** nothing is saved until the game starts, so there is no log to replay. The Host's tab rebuilds an empty lobby under the same Room Code, friends' clients send `joinRoom` again on `hostBack` to retake their Seats, and the Host adds local and bot Seats again.
 - **Host leaves for good:** the Room ends. The game never moves to another device, because that device would need the full state.
 - **Friend reconnects:** the friend's `seatToken` from localStorage reclaims their Seat, and the Room sends them a fresh `update`. A disconnected friend's Seat is held for 2 minutes. After that, a bot takes over the Seat, and a friend who returns takes it back at the next turn boundary (when the active player changes), never mid-turn. Until then they see updates, but their actions are rejected. Holds are not saved: after a Host refresh, every absent friend's hold restarts from the full 2 minutes.
 - Optionally, when a game ends, the Host can download the replay as a JSON file.
@@ -1026,18 +1030,19 @@ Decisions: target the player closest to winning.
 
 ### 12.2 Principles
 - **The UI only renders `PlayerView` and sends `Action`s through a `GameConnection`** (Section 10.3). It contains no game rules and doesn't know whether it is local or remote.
-- **Drive interaction from legal actions:** highlight only playable cards, valid targets, and attackable monsters. Disabled elements show a tooltip explaining why ("Needs 2 heroes").
+- **Drive interaction from legal actions** (`PlayerView.legalActions`, Section 9): highlight only playable cards, valid targets, and attackable monsters. Disabled elements show a tooltip explaining why ("Needs 2 heroes").
 - **Render `pendingDecision`** as a modal or inline selection with its options.
 - **Queue animations:** incoming `GameEvent`s go into an animation queue and play in order (dice roll, card fly, flip). Update the view after each event's animation, or use a "skip animations" toggle.
 - **Response windows** show a large, clear bar with a countdown, the eligible cards, and a Pass button.
-- **Local Seats** get a "Pass the device to P2" screen that hides the hand between players, for both turns and response windows (Section 7.4).
-- **Host status:** the Host sees a "you are hosting, keep this tab open" notice. Friends see a "Waiting for Host…" overlay on `hostAway`.
+- **Local Seats** get a "Pass the device to P2" screen that hides the hand between players, for both turns and response windows (Section 7.4). The Room asks for it in response windows with `passDevice`; the client works it out for turns. A device with only one local Seat skips the screen: the client answers `passDevice` with `confirmPassDevice` straight away, because there is nobody to pass to. A local Seat's response options come from `respond`, never from `legalActions`, because the Room rejects a response sent before it asks.
+- **Host status:** the Host sees a "you are hosting, keep this tab open" notice. Friends see a "Waiting for Host…" overlay on `hostAway`, and a "Waiting for responses…" status while a response window is open and they have nothing left to answer. It names nobody, so it reveals nothing about any hand.
 
 ### 12.3 Component list
 
 ```
 <App>
- ├ <Lobby/>                  create/join Room, add local/bot Seats, rules config
+ ├ <Home/>                   Play on this device / Host online / Join with a Room Code
+ ├ <Lobby/>                  Seats, add local/bot Seats, rules config
  └ <GameScreen>
     ├ <OpponentArea/> ×N
     ├ <CenterArea>  <MonsterRow/> <DeckPile/> <DiscardPile/> <DiceTray/>
@@ -1048,6 +1053,8 @@ Decisions: target the player closest to winning.
     ├ <GameLog/>
     └ <GameOverScreen/>
 ```
+
+"Play on this device" never contacts the relay. The choice comes first because a Room's code is fixed when it is built, and the relay only knows codes it issued.
 
 ### 12.4 Card rendering
 Render cards with HTML/CSS (title, class icon, roll number, text) so placeholder data looks reasonable before any art exists. Art, if added, is an optional image layer on top.
