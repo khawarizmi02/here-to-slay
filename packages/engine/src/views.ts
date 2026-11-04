@@ -1,6 +1,6 @@
 import { clone } from "./clone.js";
 import { getLegalActions } from "./rules.js";
-import type { CardInstanceId, CardView, GameEvent, GameState, PlayerId, PlayerView } from "./types.js";
+import type { CardIndex, CardInstanceId, CardView, GameEvent, GameState, PlayerId, PlayerView } from "./types.js";
 
 /** The whole Decision for the player who must answer; everyone else learns only who that is. */
 function pendingDecisionFor(state: GameState, viewer: PlayerId | "spectator"): PlayerView["pendingDecision"] {
@@ -10,7 +10,7 @@ function pendingDecisionFor(state: GameState, viewer: PlayerId | "spectator"): P
 }
 
 /** One player's redacted view (TECHNICAL_DESIGN.md §9). Shares nothing with `state`. */
-export function getPlayerView(state: GameState, viewer: PlayerId | "spectator"): PlayerView {
+export function getPlayerView(defs: CardIndex, state: GameState, viewer: PlayerId | "spectator"): PlayerView {
   const card = (id: CardInstanceId): CardView => ({ id, def: state.cards[id]! });
   const me = state.players.find((p) => p.id === viewer);
   return {
@@ -43,7 +43,7 @@ export function getPlayerView(state: GameState, viewer: PlayerId | "spectator"):
     firstPlayerRolls: clone(state.firstPlayerRolls),
     winner: state.winner,
     winReason: state.winReason,
-    legalActions: me ? getLegalActions(state, me.id) : [],
+    legalActions: me ? getLegalActions(defs, state, me.id) : [],
   };
 }
 

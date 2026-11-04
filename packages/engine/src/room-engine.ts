@@ -4,7 +4,7 @@ import { clone } from "./clone.js";
 import { hash128 } from "./rng.js";
 import { applyAction, getLegalActions, isDiscardDecision } from "./rules.js";
 import { createGame } from "./setup.js";
-import type { ApplyResult, GameEvent, GameState, PlayerView } from "./types.js";
+import type { ApplyResult, CardIndex, GameEvent, GameState, PlayerView } from "./types.js";
 import { getPlayerEvents, getPlayerView } from "./views.js";
 
 /**
@@ -28,14 +28,15 @@ export interface BoundEngine {
 
 export function createRoomEngine(cardDefs: readonly CardDef[]): BoundEngine {
   const defs = clone([...cardDefs]);
+  const index: CardIndex = new Map(defs.map((d) => [d.id, d]));
   return {
     cardDefsVersion: cardDefsVersion(defs),
     createGame: ({ players, seed, config }) => createGame({ players, seed, config, cardDefs: defs }),
-    applyAction,
-    getLegalActions,
+    applyAction: (state, action) => applyAction(index, state, action),
+    getLegalActions: (state, player) => getLegalActions(index, state, player),
     getActivePlayer: (state) => state.activePlayer,
     isDiscardDecision,
-    getPlayerView,
+    getPlayerView: (state, player) => getPlayerView(index, state, player),
     getPlayerEvents,
   };
 }

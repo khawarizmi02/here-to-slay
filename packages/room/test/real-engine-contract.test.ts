@@ -1,6 +1,6 @@
 import { placeholderCardDefs } from "@here-to-slay/cards";
-import { createRoomEngine, type GameState } from "@here-to-slay/engine";
-import type { PlayerId } from "@here-to-slay/protocol";
+import { createRoomEngine, type GameEvent, type GameState } from "@here-to-slay/engine";
+import type { PlayerId, GameEvent as ProtocolEvent } from "@here-to-slay/protocol";
 import type { RoomEngine } from "../src/index.js";
 import { describeRoomEngineContract } from "./engine-contract.js";
 
@@ -18,12 +18,18 @@ function hiddenCards(state: GameState, viewer: PlayerId | "spectator"): string[]
   ];
 }
 
+/** Discards are face up, even when a reshuffle in the same action puts them back in the deck. */
+function faceUpInEvents(events: readonly ProtocolEvent[]): string[] {
+  return (events as GameEvent[]).flatMap((e) => (e.type === "CARD_DISCARDED" ? [e.card.id] : []));
+}
+
 // Response Windows arrive in M3 (#47, #48).
-describeRoomEngineContract<GameState>("real engine", { engine, opensResponseWindows: false, hiddenCards });
+describeRoomEngineContract<GameState>("real engine", { engine, opensResponseWindows: false, hiddenCards, faceUpInEvents });
 
 describeRoomEngineContract<GameState>("real engine, leader draft", {
   engine,
   config: { leaderSelection: "draft" },
   opensResponseWindows: false,
   hiddenCards,
+  faceUpInEvents,
 });
