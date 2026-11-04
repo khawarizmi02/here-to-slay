@@ -16,7 +16,7 @@ function allZones(state: GameState): string[] {
     ...state.monsterDeck,
     ...state.activeMonsters,
     ...state.leaderPool,
-    ...state.players.flatMap((p) => [p.leader, ...p.hand, ...p.party.map((h) => h.instanceId), ...p.slainMonsters]),
+    ...state.players.flatMap((p) => [p.leader!, ...p.hand, ...p.party.map((h) => h.instanceId), ...p.slainMonsters]),
   ];
 }
 
@@ -41,7 +41,7 @@ describe("createGame setup", () => {
     const state = start();
     const leaders = state.players.map((p) => p.leader);
     expect(new Set(leaders).size).toBe(3);
-    for (const leader of leaders) expect(state.cards[leader]).toMatch(/^leader_/);
+    for (const leader of leaders) expect(state.cards[leader!]).toMatch(/^leader_/);
     // Over several seeds, the first Seat doesn't always get the same leader.
     const firstLeaders = new Set(["a", "b", "c", "d", "e", "f"].map((seed) => start(seed).players[0]!.leader));
     expect(firstLeaders.size).toBeGreaterThan(1);
