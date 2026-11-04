@@ -1163,6 +1163,7 @@ Defaults are in place, but the owner should check these against the printed rule
 10. **Empty monster deck:** what happens? (Assumed: the slot stays empty.)
 11. **Mid-effect win:** does the game end the instant a win condition is met, even on another player's turn? (`winCheckTiming`)
 12. **Hand-limit discard:** chosen by the player? (Assumed yes.)
+13. **Modifiers in a Challenge:** do both players roll first, with one Modifier Window in which any player may modify either roll? (Assumed yes. `PLAY_MODIFIER` names its target roll.)
 
 When a rule is confirmed, update the default value in `config/defaults.ts` and remove it from this list.
 
