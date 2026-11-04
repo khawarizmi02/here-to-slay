@@ -1,19 +1,50 @@
 import type { CostedAction, HeroClass, PassiveAbility, RollKind } from "@here-to-slay/cards";
 import { playerState } from "./players.js";
-import type { CardIndex, GameState, PlayerId } from "./types.js";
+import type { CardIndex, CardInstanceId, GameState, PlayerId } from "./types.js";
 
 /** What a hook point knows when it runs; a passive's condition must match every field it names. */
 export interface HookContext {
   action?: CostedAction;
   rollKind?: RollKind;
   heroClass?: HeroClass;
+  /** The hero a roll is for. An item's passive applies only to its own hero's rolls. */
+  hero?: CardInstanceId;
+}
+
+/** A passive, with the card that grants it. */
+export interface SourcedPassive {
+  passive: PassiveAbility;
+  source: CardInstanceId;
 }
 
 /**
- * Every passive `player` has at `hook` (TECHNICAL_DESIGN.md §5.4): their
- * Party Leader's, then the items on their heroes in party order, then their
- * slain monsters' rewards in the order they were slain.
+ * Every passive `player` has at `hook` (TECHNICAL_DESIGN.md §5.4), with the
+ * card it comes from: their Party Leader's, then the items on their heroes in
+ * party order, then their slain monsters' rewards in the order they were
+ * slain. An item counts for a roll only when its hero is the one rolling.
  */
+export function passiveSourcesAt(
+  defs: CardIndex,
+  state: GameState,
+  player: PlayerId,
+  hook: PassiveAbility["hook"],
+  ctx: HookContext = {},
+): SourcedPassive[] {
+  const p = playerState(state, player);
+  const found: SourcedPassive[] = [];
+  const add = (source: CardInstanceId | null) => {
+    if (source === null) return;
+    const def = defs.get(state.cards[source]!)!;
+    const passive = def.type === "monster" ? def.reward : "passive" in def ? def.passive : undefined;
+    if (passive?.hook === hook && matches(passive, ctx)) found.push({ passive, source });
+  };
+  add(p.leader);
+  for (const hero of p.party) if (ctx.hero === undefined || ctx.hero === hero.instanceId) add(hero.equippedItem);
+  for (const monster of p.slainMonsters) add(monster);
+  return found;
+}
+
+/** The passives of `passiveSourcesAt`, without their cards. */
 export function passivesAt(
   defs: CardIndex,
   state: GameState,
@@ -21,18 +52,7 @@ export function passivesAt(
   hook: PassiveAbility["hook"],
   ctx: HookContext = {},
 ): PassiveAbility[] {
-  const p = playerState(state, player);
-  const found: PassiveAbility[] = [];
-  const add = (instance: string | null) => {
-    if (instance === null) return;
-    const def = defs.get(state.cards[instance]!)!;
-    const passive = def.type === "monster" ? def.reward : "passive" in def ? def.passive : undefined;
-    if (passive?.hook === hook && matches(passive, ctx)) found.push(passive);
-  };
-  add(p.leader);
-  for (const hero of p.party) add(hero.equippedItem);
-  for (const monster of p.slainMonsters) add(monster);
-  return found;
+  return passiveSourcesAt(defs, state, player, hook, ctx).map((s) => s.passive);
 }
 
 function matches(passive: PassiveAbility, ctx: HookContext): boolean {

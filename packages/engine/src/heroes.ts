@@ -1,6 +1,7 @@
 import type { HeroDef } from "@here-to-slay/cards";
 import { playerState } from "./players.js";
-import { runStack } from "./stack.js";
+import { heroClass } from "./selectors.js";
+import { pushTriggers, runStack } from "./stack.js";
 import type { CardIndex, CardInstanceId, GameEvent, GameState, PlayerId } from "./types.js";
 
 /** The hero definition of a card instance, or undefined when it isn't a hero. */
@@ -25,17 +26,20 @@ export function rollableHeroes(state: GameState, player: PlayerId): CardInstance
 
 /**
  * PLAY_HERO (§3.5): the hero goes straight into the party (no Challenge
- * Window until #47). With `freeRollOnHeroPlay`, the player is then offered
- * the hero's roll for free.
+ * Window until #47) and the player's onHeroEnterParty passives run. With
+ * `freeRollOnHeroPlay`, the player is then offered the hero's roll for
+ * free. Their onCardPlayed passives run last.
  */
 export function playHero(defs: CardIndex, state: GameState, player: PlayerId, card: CardInstanceId, events: GameEvent[]): void {
   const p = playerState(state, player);
   p.hand = p.hand.filter((c) => c !== card);
   p.party.push({ instanceId: card, equippedItem: null, rolledThisTurn: false });
   events.push({ type: "HERO_PLAYED", player, card: { id: card, def: state.cards[card]! } });
+  pushTriggers(defs, state, player, "onCardPlayed", { action: "PLAY_HERO" });
   if (state.config.freeRollOnHeroPlay) {
     state.stack.push({ kind: "freeRoll", player, hero: card, bindings: {}, awaiting: null });
   }
+  pushTriggers(defs, state, player, "onHeroEnterParty", { heroClass: heroClass(defs, state, card) });
   runStack(defs, state, events);
 }
 
@@ -49,5 +53,5 @@ export function rollHeroEffect(defs: CardIndex, state: GameState, player: Player
 export function startHeroRoll(state: GameState, player: PlayerId, hero: CardInstanceId): void {
   const inParty = playerState(state, player).party.find((h) => h.instanceId === hero);
   if (inParty) inParty.rolledThisTurn = true;
-  state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: player, rollKind: "heroEffect", hero });
+  state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: player, rollKind: "heroEffect", hero, stage: "beforeRoll" });
 }

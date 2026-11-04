@@ -2,6 +2,7 @@ import type { CostedAction } from "@here-to-slay/cards";
 import { clone } from "./clone.js";
 import { actionCost } from "./passives.js";
 import { playableHeroes, playHero, rollableHeroes, rollHeroEffect } from "./heroes.js";
+import { playableItems, playableMagic, playItem, playMagic } from "./plays.js";
 import { leaderChosen } from "./setup.js";
 import { runStack, stackAnswered } from "./stack.js";
 import { canDraw, discardAndRedraw, drawCards, endTurn, handLimitDiscarded, settleTurn } from "./turns.js";
@@ -36,6 +37,8 @@ export function getLegalActions(defs: CardIndex, state: GameState, player: Playe
   const affordable = (type: CostedAction) => actionCost(defs, state, player, type) <= state.actionPoints;
   if (affordable("DRAW_CARD") && canDraw(state)) actions.push({ type: "DRAW_CARD", player });
   if (affordable("PLAY_HERO")) for (const card of playableHeroes(defs, state, player)) actions.push({ type: "PLAY_HERO", player, card });
+  if (affordable("PLAY_ITEM")) for (const { card, targetHero } of playableItems(defs, state, player)) actions.push({ type: "PLAY_ITEM", player, card, targetHero });
+  if (affordable("PLAY_MAGIC")) for (const card of playableMagic(defs, state, player)) actions.push({ type: "PLAY_MAGIC", player, card });
   if (affordable("ROLL_HERO_EFFECT")) for (const hero of rollableHeroes(state, player)) actions.push({ type: "ROLL_HERO_EFFECT", player, hero });
   if (affordable("DISCARD_AND_REDRAW")) actions.push({ type: "DISCARD_AND_REDRAW", player });
   actions.push({ type: "END_TURN", player });
@@ -77,6 +80,12 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
       break;
     case "PLAY_HERO":
       playHero(defs, state, action.player, action.card, events);
+      break;
+    case "PLAY_ITEM":
+      playItem(defs, state, action.player, action.card, action.targetHero, events);
+      break;
+    case "PLAY_MAGIC":
+      playMagic(defs, state, action.player, action.card, events);
       break;
     case "ROLL_HERO_EFFECT":
       rollHeroEffect(defs, state, action.player, action.hero, events);

@@ -448,6 +448,9 @@ export interface PassiveAbility {
 
 The engine calls `runHooks(state, hookPoint, context)` at each hook point and gathers every passive from leaders, items, and slain monsters.
 
+- An item's passive applies to rolls only when the hero wearing it is the one rolling. At other hooks it applies to the whole party of the hero's owner, including a Cursed item on an opponent's hero.
+- A trigger passive runs as an effect on the stack, controlled by the passive's owner. `beforeRoll` runs before the dice, `afterRoll` right after them (before a successful hero's effect), `onHeroEnterParty` and `onHeroLeaveParty` as a hero joins or leaves a party, and `onCardPlayed` once the played card has resolved.
+
 ### 5.5 Extensibility for expansions
 - New classes: extend `HeroClass` and update `classesToWin`.
 - New card types: add to `CardType`, add a Zod schema, and add an action if the card is played differently.

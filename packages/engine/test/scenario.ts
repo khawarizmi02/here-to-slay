@@ -7,10 +7,10 @@ import { players, smallSet } from "./cards.js";
 /**
  * Hero cards with these effects, one copy each, added to the small set as
  * `hero_<name>`. Each is a wizard needing 7+. Also two plain items,
- * `item_plain#0` and `#1`, and a Mask `item_mask_thief`.
+ * `item_plain#0` and `#1`, and a Mask `item_mask_thief`, then any `extra` card JSON.
  */
-export function engineWith(effects: Record<string, Effect> = {}, leaderBonus = 0) {
-  const extra = Object.entries(effects).map(([name, effect]) => ({
+export function engineWith(effects: Record<string, Effect> = {}, leaderBonus = 0, extra: unknown[] = []) {
+  const heroes = Object.entries(effects).map(([name, effect]) => ({
     id: `hero_${name}`,
     type: "hero",
     name,
@@ -25,7 +25,7 @@ export function engineWith(effects: Record<string, Effect> = {}, leaderBonus = 0
     { id: "item_plain", type: "item", name: "Plain item", text: "", copies: 2 },
     { id: "item_mask_thief", type: "item", name: "Thief mask", text: "", copies: 1, maskClass: "thief" },
   ];
-  return createRoomEngine(loadCardDefs([...base, ...extra, ...items]));
+  return createRoomEngine(loadCardDefs([...base, ...heroes, ...items, ...extra]));
 }
 
 export type Engine = ReturnType<typeof createRoomEngine>;

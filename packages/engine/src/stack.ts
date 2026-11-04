@@ -1,8 +1,8 @@
-import type { Effect, HeroFilter, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
+import type { Effect, HeroFilter, PassiveAbility, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
 import { heroDef, startHeroRoll } from "./heroes.js";
 import { discardHero, heroesMatching, stealHero, type OwnedHero } from "./party.js";
-import { rollBonus } from "./passives.js";
+import { passiveSourcesAt, rollBonus, type HookContext } from "./passives.js";
 import { fromPlayer, playerState } from "./players.js";
 import { nextInt, rollD6 } from "./rng.js";
 import { heroClass } from "./selectors.js";
@@ -17,6 +17,7 @@ import {
   type FreeRollFrame,
   type GameEvent,
   type GameState,
+  type MagicFrame,
   type PendingDecision,
   type PlayerId,
   type RollFrame,
@@ -43,7 +44,7 @@ export function runStack(defs: CardIndex, state: GameState, events: GameEvent[])
 /** Hands a Decision's answer to the frame that asked it; `runStack` carries on from there. */
 export const stackAnswered: DecisionResolver = (_defs, state, _decision, choice) => {
   const frame = state.stack.at(-1);
-  if (frame === undefined || frame.kind === "roll" || frame.awaiting === null) throw new Error("No frame is waiting on a Decision");
+  if (frame === undefined || !("awaiting" in frame) || frame.awaiting === null) throw new Error("No frame is waiting on a Decision");
   frame.bindings[frame.awaiting] = choice;
   frame.awaiting = null;
 };
@@ -57,7 +58,43 @@ function step(defs: CardIndex, state: GameState, events: GameEvent[]): void {
       return roll(defs, state, frame, events);
     case "effect":
       return effectStep(defs, state, frame, events);
+    case "magic":
+      return magic(defs, state, frame, events);
   }
+}
+
+/**
+ * Pushes `player`'s passives at a trigger hook (§5.4), each run as an effect
+ * whose controller is `player` and whose source is the card granting it.
+ * The first passive ends up on top, so it runs first.
+ */
+export function pushTriggers(
+  defs: CardIndex,
+  state: GameState,
+  player: PlayerId,
+  hook: PassiveAbility["hook"],
+  ctx: HookContext = {},
+): void {
+  const found = passiveSourcesAt(defs, state, player, hook, ctx);
+  for (const { passive, source } of found.reverse()) {
+    // Custom handlers arrive with the cards that need them.
+    if (passive.effect === undefined) throw new Error(`A ${hook} passive needs an effect for now, not ${JSON.stringify(passive)}`);
+    state.stack.push(effectFrame(passive.effect, player, player, source));
+  }
+}
+
+/** Runs a Magic card's effect, then sends the card to the discard pile. */
+function magic(defs: CardIndex, state: GameState, frame: MagicFrame, events: GameEvent[]): void {
+  if (!frame.started) {
+    frame.started = true;
+    const def = defs.get(state.cards[frame.card]!);
+    if (def?.type !== "magic") throw new Error(`${frame.card} is not a Magic card`);
+    state.stack.push(effectFrame(def.effect, frame.player, frame.player, frame.card));
+    return;
+  }
+  state.stack.pop();
+  state.discardPile.push(frame.card);
+  events.push({ type: "MAGIC_DISCARDED", player: frame.player, card: { id: frame.card, def: state.cards[frame.card]! } });
 }
 
 /**
@@ -94,15 +131,25 @@ function freeRoll(defs: CardIndex, state: GameState, frame: FreeRollFrame, event
   if (frame.bindings.roll === ACCEPT && stillThere) startHeroRoll(state, frame.player, frame.hero);
 }
 
-/** Rolls 2d6 and adds passive bonuses; on a success the hero's effect goes on the stack. */
+/**
+ * Runs the roller's beforeRoll passives, then rolls 2d6 and adds passive
+ * bonuses. On a success the hero's effect goes on the stack, under the
+ * roller's afterRoll passives, which run first.
+ */
 function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameEvent[]): void {
+  const ctx: HookContext = { rollKind: frame.rollKind, heroClass: heroClass(defs, state, frame.hero), hero: frame.hero };
+  if (frame.stage === "beforeRoll") {
+    frame.stage = "dice";
+    pushTriggers(defs, state, frame.roller, "beforeRoll", ctx);
+    return;
+  }
   state.stack.pop();
   let a: number;
   let b: number;
   [a, state.rng] = rollD6(state.rng);
   [b, state.rng] = rollD6(state.rng);
   const def = heroDef(defs, state, frame.hero)!;
-  const bonus = rollBonus(defs, state, frame.roller, { rollKind: frame.rollKind, heroClass: heroClass(defs, state, frame.hero) });
+  const bonus = rollBonus(defs, state, frame.roller, ctx);
   const total = a + b + bonus;
   const succeeded = total >= def.rollRequirement;
   events.push({
@@ -117,6 +164,7 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
     succeeded,
   });
   if (succeeded) state.stack.push(effectFrame(def.effect, frame.roller, frame.roller, frame.hero));
+  pushTriggers(defs, state, frame.roller, "afterRoll", ctx);
 }
 
 export function effectFrame(effect: Effect, controller: PlayerId, self: PlayerId, source: CardInstanceId): EffectFrame {
@@ -199,7 +247,7 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
       const picked = pickHero(defs, state, frame, "hero", chooserOf(frame, effect.target), candidates, "Choose a hero to steal", events);
       if (picked === undefined) return;
       state.stack.pop();
-      if (picked !== null) stealHero(state, frame.self, picked.owner, picked.hero, events);
+      if (picked !== null) stealHero(defs, state, frame.self, picked.owner, picked.hero, events);
       return;
     }
     case "destroy": {
@@ -207,7 +255,7 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
       const picked = pickHero(defs, state, frame, "hero", chooserOf(frame, effect.target), candidates, "Choose a hero to destroy", events);
       if (picked === undefined) return;
       state.stack.pop();
-      if (picked !== null) discardHero(state, "HERO_DESTROYED", frame.self, picked.owner, picked.hero, events);
+      if (picked !== null) discardHero(defs, state, "HERO_DESTROYED", frame.self, picked.owner, picked.hero, events);
       return;
     }
     case "sacrifice":
@@ -280,7 +328,7 @@ function sacrificeStep(defs: CardIndex, state: GameState, frame: EffectFrame, ef
     state.stack.pop();
     return;
   }
-  discardHero(state, "HERO_SACRIFICED", who!, picked.owner, picked.hero, events);
+  discardHero(defs, state, "HERO_SACRIFICED", who!, picked.owner, picked.hero, events);
   frame.pc++;
 }
 
