@@ -1,0 +1,92 @@
+[
+  {
+    "id": "leader_bard",
+    "type": "leader",
+    "name": "Placeholder Bard Leader",
+    "copies": 1,
+    "text": "+1 to rolls for your Bard heroes.",
+    "class": "bard",
+    "passive": {
+      "hook": "modifyRollTotal",
+      "condition": {
+        "rollKind": "heroEffect",
+        "heroClass": "bard"
+      },
+      "value": 1
+    }
+  },
+  {
+    "id": "leader_fighter",
+    "type": "leader",
+    "name": "Placeholder Fighter Leader",
+    "copies": 1,
+    "text": "+1 to your Challenge rolls.",
+    "class": "fighter",
+    "passive": {
+      "hook": "modifyRollTotal",
+      "condition": {
+        "rollKind": "challenge"
+      },
+      "value": 1
+    }
+  },
+  {
+    "id": "leader_guardian",
+    "type": "leader",
+    "name": "Placeholder Guardian Leader",
+    "copies": 1,
+    "text": "When one of your cards is Challenged, DRAW a card.",
+    "class": "guardian",
+    "passive": {
+      "hook": "onChallenged",
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  },
+  {
+    "id": "leader_ranger",
+    "type": "leader",
+    "name": "Placeholder Ranger Leader",
+    "copies": 1,
+    "text": "+1 to your monster attack rolls.",
+    "class": "ranger",
+    "passive": {
+      "hook": "modifyRollTotal",
+      "condition": {
+        "rollKind": "monsterAttack"
+      },
+      "value": 1
+    }
+  },
+  {
+    "id": "leader_thief",
+    "type": "leader",
+    "name": "Placeholder Thief Leader",
+    "copies": 1,
+    "text": "When a hero leaves your party, DRAW a card.",
+    "class": "thief",
+    "passive": {
+      "hook": "onHeroLeaveParty",
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  },
+  {
+    "id": "leader_wizard",
+    "type": "leader",
+    "name": "Placeholder Wizard Leader",
+    "copies": 1,
+    "text": "Your hand limit is 1 higher.",
+    "class": "wizard",
+    "passive": {
+      "hook": "modifyHandLimit",
+      "value": 1
+    }
+  }
+]

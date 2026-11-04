@@ -394,7 +394,10 @@ export type PlayerRef =
   | "self" | "activePlayer"
   | { choose: PlayerFilter };   // prompts the chooser to pick a player
 
-export type PlayerFilter = "any" | "other" | "self" | "withHeroes" | "withCards";
+export type PlayerFilter =
+  | "any" | "other" | "self"
+  | "withHeroes" | "withCards"            // include the controller
+  | "otherWithHeroes" | "otherWithCards"; // exclude the controller
 
 export interface HeroFilter {
   owner: "self" | "other" | "any";
@@ -476,7 +479,7 @@ Use these until the real data is entered. Names and numbers are illustrative onl
     "text": "Roll 10+: STEAL a Hero card.",
     "effect": {
       "op": "steal",
-      "from": { "choose": "withHeroes" },
+      "from": { "choose": "otherWithHeroes" },
       "target": { "owner": "other", "chosenBy": "self" }
     }
   },

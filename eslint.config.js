@@ -60,7 +60,7 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
   {
-    files: ["packages/engine/src/**/*.ts", "packages/toy-engine/src/**/*.ts"],
+    files: ["packages/engine/src/**/*.ts", "packages/cards/src/**/*.ts", "packages/toy-engine/src/**/*.ts"],
     rules: engineDeterminism,
   },
   {

@@ -27,6 +27,12 @@ importers:
         specifier: ^5.0.5
         version: 5.0.5(vite@8.3.5(esbuild@0.28.2))
 
+  packages/cards:
+    dependencies:
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/protocol:
     dependencies:
       zod:
