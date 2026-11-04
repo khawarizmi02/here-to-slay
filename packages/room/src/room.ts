@@ -43,6 +43,12 @@ export interface RoomEngine<State> {
   getLegalActions(state: State, player: PlayerId): Action[];
   /** Whose turn it is. Local Seats are asked to respond in turn order, starting after this player. */
   getActivePlayer(state: State): PlayerId;
+  /**
+   * Whether `player`'s pending decision is choosing cards to discard. When a
+   * remote Seat's decision times out, the Room picks a random answer for a
+   * discard and the first one otherwise. Without this, every decision takes the first.
+   */
+  isDiscardDecision?(state: State, player: PlayerId): boolean;
   getPlayerView(state: State, player: PlayerId): PlayerViewPayload;
   getPlayerEvents(events: readonly GameEvent[], player: PlayerId): GameEvent[];
 }
@@ -52,10 +58,41 @@ export interface Clock {
   now(): number;
 }
 
+/**
+ * How the Room schedules its own deadline checks, like the global
+ * setTimeout/clearTimeout. Browsers throttle these in background tabs, so the
+ * Room never relies on them alone (TECHNICAL_DESIGN.md §10.6).
+ */
+export interface Timers {
+  setTimeout(cb: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+/** How long a remote Seat with a usable card has to respond, unless the config's `responseWindowMs` says otherwise. */
+export const DEFAULT_RESPONSE_WINDOW_MS = 8_000;
+
+/**
+ * A remote Seat's pass never takes effect sooner than a random delay in this
+ * range after it is asked, whether the Seat passes itself or holds nothing
+ * and is passed for, so timing reveals nothing about its hand.
+ */
+export const RESPONSE_DELAY_MS = { min: 500, max: 2_500 } as const;
+
+// The Room package has no DOM or Node types; every runtime it runs in has these.
+declare function setTimeout(cb: () => void, ms: number): unknown;
+declare function clearTimeout(handle: unknown): void;
+
+const globalTimers: Timers = {
+  setTimeout: (cb, ms) => setTimeout(cb, ms),
+  clearTimeout: (handle) => clearTimeout(handle),
+};
+
 export interface RoomOptions<State> {
   engine: RoomEngine<State>;
-  /** The Room's only source of time. Not read yet: deadlines arrive with response-window timers. */
+  /** The Room's only source of time: every deadline is a timestamp on this clock. */
   clock: Clock;
+  /** Schedules the Room's own deadline checks. Without one, the global setTimeout. */
+  timers?: Timers;
   /** The Room's only source of randomness, like Math.random: a float in [0, 1). */
   random: () => number;
   /** The Host's name, for the Host's own Seat. */
@@ -130,6 +167,34 @@ type InboxItem =
   | { from: "relay"; relay: HostRelay; frame: string }
   | { from: "relayClosed"; relay: HostRelay };
 
+/**
+ * A remote Seat the Room is asking to respond (TECHNICAL_DESIGN.md §7.4) or
+ * to answer a decision, or a bot Seat asked to respond when the Room has a
+ * remote Seat, as its response is held back the same way. It lasts until
+ * that Seat's own action is applied, or until any action other than another
+ * Seat's pass reopens the window.
+ */
+interface Ask {
+  seat: Seat;
+  kind: "respond" | "decide";
+  /** The earliest time the Seat's pass takes effect; no later than now for a decision. */
+  holdUntil: number;
+  /**
+   * When the Room answers for a remote Seat: `holdUntil` for one asked to
+   * respond that holds no usable card, and for a bot, which answers itself.
+   */
+  deadline: number;
+  /** Whether the Seat is shown a countdown: a remote Seat with a usable card, or with a decision. */
+  countdown: boolean;
+  /** The clientSeq of a pass the Seat sent before `holdUntil`, waiting to take effect. */
+  heldPass: number | null;
+}
+
+/** When the Room next acts on an ask. */
+function dueAt(ask: Ask): number {
+  return ask.heldPass !== null ? ask.holdUntil : Math.max(ask.holdUntil, ask.deadline);
+}
+
 /** The local Seat the Room is asking to respond (TECHNICAL_DESIGN.md §7.4). */
 interface Asking {
   seat: Seat;
@@ -157,6 +222,8 @@ export class Room<State> {
   readonly roomCode: RoomCode;
 
   readonly #engine: RoomEngine<State>;
+  readonly #clock: Clock;
+  readonly #timers: Timers;
   readonly #random: () => number;
   readonly #makeBot: BotFactory;
   readonly #store: ActionLogStore | null;
@@ -171,6 +238,10 @@ export class Room<State> {
   #config: ConfigPatch = {};
   #game: Game<State> | null = null;
   #asking: Asking | null = null;
+  /** The remote Seats asked to respond or decide, and the bots held back for them. */
+  readonly #asks = new Map<Seat, Ask>();
+  /** The Room's own deadline check, if one is scheduled, and when it is due. */
+  #timer: { handle: unknown; at: number } | null = null;
 
   /** The Host's current connection to the relay, if any. */
   #relay: HostRelay | null = null;
@@ -185,12 +256,16 @@ export class Room<State> {
   constructor(opts: RoomOptions<State>, restoring: RoomRecord);
   constructor(opts: RoomOptions<State>, restoring?: RoomRecord) {
     this.#engine = opts.engine;
+    this.#clock = opts.clock;
+    this.#timers = opts.timers ?? globalTimers;
     this.#random = opts.random;
     this.#makeBot = opts.bot ?? (() => randomBot(this.#random));
     this.#store = opts.store ?? null;
     this.roomCode = opts.roomCode ?? this.#makeRoomCode();
     if (restoring) {
       this.#replay(restoring);
+      // Open deadlines restart from their full duration (TECHNICAL_DESIGN.md §10.7).
+      this.#updateAsks(null);
     } else {
       this.#addSeat(opts.hostName);
     }
@@ -418,6 +493,8 @@ export class Room<State> {
     try {
       // Messages first, in arrival order; once none are waiting, one bot move, then look again.
       for (;;) {
+        // A deadline that passed before a message arrived is answered first.
+        if (this.#answerExpired()) continue;
         const next = this.#inbox.shift();
         if (!next) {
           if (this.#stepBot() || this.#passForLocalSeat()) continue;
@@ -438,7 +515,17 @@ export class Room<State> {
     } finally {
       this.#processing = false;
     }
+    this.#scheduleCheck();
     this.#rethrowErrors();
+  }
+
+  /**
+   * Answers any remote Seat whose time has run out. The Room checks on every
+   * incoming message and relay tick, and on its own timer; the Host's UI
+   * calls this on `visibilitychange` too, as background tabs throttle timers.
+   */
+  checkDeadlines(): void {
+    this.#run();
   }
 
   /**
@@ -560,6 +647,8 @@ export class Room<State> {
       if (!this.#asking.confirmed) return "Confirm you have the device before responding";
     }
 
+    if (from.kind === "remote" && msg.action.type === "PASS" && this.#holdPass(from, msg.clientSeq)) return undefined;
+
     // The Seat, not the message, decides who is acting.
     return this.#apply(game, { ...msg.action, player: from.id });
   }
@@ -657,6 +746,149 @@ export class Room<State> {
     return undefined;
   }
 
+  // -------------------------------------------------------------------------
+  // Response windows and timers for remote Seats (TECHNICAL_DESIGN.md §7.4, §10.6)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Brings the asks up to date after `action` (null when a game starts or is
+   * restored). The acting Seat's ask is over, and so is every ask unless
+   * the action was a pass, as any other response reopens the window. Every
+   * remote Seat now asked to respond or decide without an ask gets a fresh
+   * one, and so does every bot asked to respond if the Room has a remote Seat.
+   */
+  #updateAsks(action: Action | null): void {
+    const game = this.#game;
+    if (action) {
+      for (const ask of [...this.#asks.values()]) {
+        if (ask.seat.id !== action.player) {
+          if (action.type !== "PASS") this.#endAsk(ask, "Another response came first: respond again");
+        } else if (action.type === "PASS") {
+          // The Seat's own pass, possibly the one that was waiting.
+          this.#asks.delete(ask.seat);
+        } else {
+          this.#endAsk(ask, "You responded instead");
+        }
+      }
+    }
+    if (!game) return;
+    const now = this.#clock.now();
+    const heldBack = this.#seats.some((s) => s.kind === "remote");
+    for (const seat of this.#seats) {
+      if (seat.kind === "local" || (seat.kind === "bot" && !heldBack)) continue;
+      try {
+        const legal = this.#engine.getLegalActions(game.state, seat.id);
+        const kind = isResponding(legal) ? "respond" : seat.kind === "remote" && isDeciding(legal) ? "decide" : null;
+        const ask = this.#asks.get(seat);
+        if (ask && ask.kind !== kind) this.#endAsk(ask, "The response window has closed");
+        if (!kind || this.#asks.has(seat)) continue;
+        if (kind === "decide") {
+          this.#asks.set(seat, { seat, kind, holdUntil: now, deadline: now + this.#responseWindowMs(game), countdown: true, heldPass: null });
+          continue;
+        }
+        const holdUntil = now + this.#responseDelay();
+        const countdown = seat.kind === "remote" && hasResponseOptions(legal);
+        const deadline = countdown ? now + this.#responseWindowMs(game) : holdUntil;
+        this.#asks.set(seat, { seat, kind, holdUntil, deadline, countdown, heldPass: null });
+      } catch (e) {
+        this.#errors.push(e);
+      }
+    }
+  }
+
+  /** Shows a remote Seat its time left, if it holds a usable card or has a decision to answer. */
+  #sendCountdown(ask: Ask): void {
+    if (!ask.countdown) return;
+    this.#send(ask.seat, { t: "countdown", seat: ask.seat.id, ms: Math.max(0, Math.ceil(Math.max(ask.holdUntil, ask.deadline) - this.#clock.now())) });
+  }
+
+  /** Ends an ask before it was answered, rejecting the Seat's pass if one was waiting. */
+  #endAsk(ask: Ask, why: string): void {
+    this.#asks.delete(ask.seat);
+    if (ask.heldPass !== null) this.#send(ask.seat, { t: "actionRejected", clientSeq: ask.heldPass, error: why });
+  }
+
+  #responseDelay(): number {
+    return Math.round(RESPONSE_DELAY_MS.min + this.#random() * (RESPONSE_DELAY_MS.max - RESPONSE_DELAY_MS.min));
+  }
+
+  /**
+   * A remote Seat's pass before its delay is up waits, so it lands no sooner
+   * than the Room's pass for a Seat holding nothing. Returns whether it waits.
+   */
+  #holdPass(from: Seat, clientSeq: number): boolean {
+    const ask = this.#asks.get(from);
+    if (ask?.kind !== "respond" || this.#clock.now() >= ask.holdUntil) return false;
+    // A repeated pass replaces the waiting one; the Seat passes once either way.
+    if (ask.heldPass !== null) this.#send(from, { t: "actionRejected", clientSeq: ask.heldPass, error: "You passed again" });
+    ask.heldPass = clientSeq;
+    return true;
+  }
+
+  #responseWindowMs(game: Game<State>): number {
+    const ms = game.config.responseWindowMs;
+    return typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_RESPONSE_WINDOW_MS;
+  }
+
+  /**
+   * Answers for the remote Seat whose deadline passed first, with an
+   * ordinary logged action: a pass, or a decision's default answer. Returns
+   * whether it answered for one.
+   */
+  #answerExpired(): boolean {
+    const game = this.#game;
+    if (!game || this.#asks.size === 0) return false;
+    const now = this.#clock.now();
+    let due: Ask | null = null;
+    for (const ask of this.#asks.values()) {
+      // A bot answers for itself once its delay is up.
+      if (ask.seat.kind !== "remote") continue;
+      if (dueAt(ask) <= now && (!due || dueAt(ask) < dueAt(due))) due = ask;
+    }
+    if (!due) return false;
+    let error: string | undefined;
+    try {
+      error = this.#apply(game, due.kind === "decide" ? this.#defaultAnswer(game, due.seat) : { type: "PASS", player: due.seat.id });
+    } catch (e) {
+      error = errorMessage(e);
+    }
+    if (!error) return true;
+    // An answer the engine refuses is a bug; forget the ask so the Room can't loop on it.
+    this.#asks.delete(due.seat);
+    this.#errors.push(new Error(`Answering for ${due.seat.name} when their time ran out failed: ${error}`));
+    return false;
+  }
+
+  /** A timed-out decision's answer: a random one for a discard, otherwise the first legal one. */
+  #defaultAnswer(game: Game<State>, seat: Seat): Action {
+    const answers = this.#engine.getLegalActions(game.state, seat.id).filter((a) => a.type === "RESOLVE_DECISION");
+    const discard = this.#engine.isDiscardDecision?.(game.state, seat.id) ?? false;
+    const answer = discard ? answers[Math.floor(this.#random() * answers.length)] : answers[0];
+    if (!answer) throw new Error("the decision has no legal answer");
+    return answer;
+  }
+
+  /** Schedules the Room's own check for the earliest deadline, replacing any earlier one. */
+  #scheduleCheck(): void {
+    let at = Infinity;
+    for (const ask of this.#asks.values()) at = Math.min(at, dueAt(ask));
+    if (this.#timer?.at === at) return;
+    if (this.#timer) this.#timers.clearTimeout(this.#timer.handle);
+    this.#timer = null;
+    if (at === Infinity) return;
+    const timer = {
+      at,
+      handle: this.#timers.setTimeout(
+        () => {
+          if (this.#timer === timer) this.#timer = null;
+          this.#run();
+        },
+        Math.max(0, at - this.#clock.now()),
+      ),
+    };
+    this.#timer = timer;
+  }
+
   /** Applies an action and commits the result. Returns an error message, or undefined on success. */
   #apply(game: Game<State>, action: Action): string | undefined {
     try {
@@ -675,7 +907,8 @@ export class Room<State> {
 
   /**
    * Makes one move for the first bot Seat, in Seat order, that has something
-   * to do. Returns whether a bot moved. A bot that fails, or picks an action
+   * to do now: a bot held back by a response delay waits until it is up.
+   * Returns whether a bot moved. A bot that fails, or picks an action
    * that isn't legal, is a bug: its error is reported and the bots stop
    * until the next message, so a broken bot can't loop forever.
    */
@@ -687,6 +920,9 @@ export class Room<State> {
       try {
         const legal = this.#engine.getLegalActions(game.state, seat.id);
         if (legal.length === 0) continue;
+        // A bot's response waits for its delay whenever the Room holds bots back for remote Seats.
+        const ask = this.#asks.get(seat);
+        if (ask && this.#clock.now() < ask.holdUntil) continue;
         // Copies, so a bot can't reach into the game state.
         const view = copy(this.#engine.getPlayerView(game.state, seat.id));
         const choice = seat.bot.chooseAction(view, copy(legal));
@@ -790,6 +1026,8 @@ export class Room<State> {
     this.#save(next);
     for (const [seat, msg] of outbox) this.#send(seat, msg);
     this.#endAnsweredPrompt(next);
+    this.#updateAsks(action);
+    for (const ask of this.#asks.values()) this.#sendCountdown(ask);
   }
 
   /**
@@ -817,6 +1055,8 @@ export class Room<State> {
   #sendCurrentUpdate(seat: Seat): void {
     const game = this.#game!;
     this.#send(seat, this.#update(game.state, game.version, seat, []));
+    const ask = this.#asks.get(seat);
+    if (ask) this.#sendCountdown(ask);
   }
 
   #update(state: State, version: number, seat: Seat, events: GameEvent[]): RoomMsg {
@@ -874,6 +1114,11 @@ export class Room<State> {
 /** Whether a player with these legal actions is being asked to respond in a response window. */
 function isResponding(legal: readonly Action[]): boolean {
   return legal.some((a) => a.type === "PASS");
+}
+
+/** Whether a player with these legal actions has a pending decision to answer. */
+function isDeciding(legal: readonly Action[]): boolean {
+  return legal.some((a) => a.type === "RESOLVE_DECISION");
 }
 
 /** Whether a responding player holds a usable card: anything to do but pass. */

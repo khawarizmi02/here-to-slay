@@ -96,6 +96,14 @@ export const RoomMsgSchema = z.discriminatedUnion("t", [
   z.strictObject({ t: z.literal("passDevice"), seat: SeatIdSchema, name: PlayerNameSchema }),
   /** To a local Seat that confirmed it has the device: its response options, PASS among them. */
   z.strictObject({ t: z.literal("respond"), seat: SeatIdSchema, actions: z.array(ActionSchema).min(1).max(64) }),
+  /**
+   * To a remote Seat asked to respond that holds a usable card, or that has a
+   * decision to answer: show a countdown of `ms` milliseconds, after which
+   * the Room passes or answers for it. Sent again after every update while
+   * it stands. A remote Seat holding nothing usable gets none: the Room
+   * passes for it after a short random delay.
+   */
+  z.strictObject({ t: z.literal("countdown"), seat: SeatIdSchema, ms: z.number().int().nonnegative() }),
 ]);
 export type RoomMsg = z.infer<typeof RoomMsgSchema>;
 export type RoomMsgType = RoomMsg["t"];

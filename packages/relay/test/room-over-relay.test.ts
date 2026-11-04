@@ -29,6 +29,22 @@ function seededRandom(seed: string): () => number {
   };
 }
 
+/**
+ * Room time running 100 times faster than real time, so the random delays
+ * that hold back remote passes and bot responses take milliseconds.
+ */
+function fastTime() {
+  const speed = 100;
+  const start = Date.now();
+  return {
+    clock: { now: () => start + (Date.now() - start) * speed },
+    timers: {
+      setTimeout: (cb: () => void, ms: number): unknown => setTimeout(cb, ms / speed),
+      clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    },
+  };
+}
+
 /** Opens a WebSocket to the relay the way a browser tab would. */
 async function open(roomCode: string, query: Record<string, string>) {
   const res = await upgrade(roomCode, query);
@@ -56,12 +72,12 @@ class Tab {
   view(): toy.PlayerView | undefined {
     return this.last("update")?.view as unknown as toy.PlayerView | undefined;
   }
-  /** The response prompt the Room sent after the latest update, if it still stands. */
+  /** The response prompt or countdown the Room sent after the latest update, if it still stands. */
   prompt(): RoomMsg["t"] | undefined {
     let prompt: RoomMsg["t"] | undefined;
     for (const msg of this.inbox) {
       if (msg.t === "update") prompt = undefined;
-      else if (msg.t === "passDevice" || msg.t === "respond") prompt = msg.t;
+      else if (msg.t === "passDevice" || msg.t === "respond" || msg.t === "countdown") prompt = msg.t;
     }
     return prompt;
   }
@@ -79,6 +95,7 @@ async function until(check: () => boolean, what: string, timeoutMs = 3000): Prom
 /**
  * The move a player's UI would make from its own view, if it is their move.
  * A local Seat responds only when the Room asks it to, after confirming it has the device.
+ * A friend answers only with a countdown showing, as one holding nothing usable is passed for.
  */
 function moveFor(seat: string, tab: Tab, local: boolean): Action | "confirm" | undefined {
   const view = tab.view()!;
@@ -88,7 +105,7 @@ function moveFor(seat: string, tab: Tab, local: boolean): Action | "confirm" | u
     return card ? { type: "PLAY_HERO", player, card: card.id } : { type: "DRAW_CARD", player };
   }
   if (view.phase === "responseWindow" && view.responseWindow?.awaiting.includes(seat)) {
-    if (!local) return { type: "PASS", player };
+    if (!local) return tab.prompt() === "countdown" ? { type: "PASS", player } : undefined;
     const prompt = tab.prompt();
     if (prompt === "passDevice") return "confirm";
     return prompt === "respond" ? { type: "PASS", player } : undefined;
@@ -103,7 +120,7 @@ function moveFor(seat: string, tab: Tab, local: boolean): Action | "confirm" | u
 describe("a Room over the real relay", () => {
   it("seats two friends and a bot, and plays a toy game to game over", async () => {
     const { roomCode, hostToken } = await createRoom();
-    const room = new Room({ engine: toyEngine, clock: { now: () => 0 }, random: seededRandom("relay"), hostName: "Alice", roomCode });
+    const room = new Room({ engine: toyEngine, ...fastTime(), random: seededRandom("relay"), hostName: "Alice", roomCode });
     const hostSocket = await open(roomCode, { hostToken });
     if ("refused" in hostSocket) throw new Error(`Host refused: ${hostSocket.refused}`);
     room.attachRelay(hostSocket);
@@ -121,6 +138,8 @@ describe("a Room over the real relay", () => {
       ["Cara", "remote"],
     ]);
 
+    // Long enough that no friend's time runs out while their move crosses the relay.
+    host.conn.send({ t: "setConfig", config: { responseWindowMs: 600_000 } });
     host.conn.send({ t: "startGame" });
     const tabs = new Map<string, Tab>([
       [host.last("lobby")!.you[0]!, host],
@@ -129,18 +148,31 @@ describe("a Room over the real relay", () => {
     ]);
     await until(() => [...tabs.values()].every((t) => t.view()), "the first update");
 
+    // A friend's pass may lose the race to a response that closes the window first; nothing else is ever rejected.
+    const passes = new Set<number>();
     for (let clientSeq = 0; host.view()!.phase !== "gameOver"; clientSeq++) {
       expect(clientSeq).toBeLessThan(300);
-      const version = host.last("update")!.version;
       // Every tab must have caught up before anyone picks a move from their view.
-      await until(() => [...tabs.values()].every((t) => t.last("update")!.version === version), `everyone at version ${version}`);
-      const [seat, tab] = [...tabs].find(([seat, tab]) => moveFor(seat, tab, tab === host))!;
+      await until(() => [...tabs.values()].every((t) => t.last("update")!.version === host.last("update")!.version), "everyone at the same version");
+      const version = host.last("update")!.version;
+      const mover = [...tabs].find(([seat, tab]) => moveFor(seat, tab, tab === host));
+      if (!mover) {
+        // Only the bot, or a friend holding nothing, is left to respond: the Room answers after their delay.
+        // Or a friend's countdown is still crossing the relay.
+        await until(
+          () => host.last("update")!.version > version || [...tabs].some(([seat, tab]) => moveFor(seat, tab, tab === host)),
+          `the next move after version ${version}`,
+        );
+        continue;
+      }
+      const [seat, tab] = mover;
       const move = moveFor(seat, tab, tab === host)!;
       if (move === "confirm") {
         tab.conn.send({ t: "confirmPassDevice", seat });
         await until(() => tab.prompt() === "respond", "the response options");
         continue;
       }
+      if (move.type === "PASS" && tab !== host) passes.add(clientSeq);
       tab.conn.send({ t: "action", seat, action: move, clientSeq });
       await until(() => host.last("update")!.version > version, `the move after version ${version}`);
     }
@@ -151,7 +183,8 @@ describe("a Room over the real relay", () => {
       expect(tab.view()!.phase).toBe("gameOver");
       expect(tab.view()!.me).toBe(seat);
       expect(tab.view()!.winner).toBe(host.view()!.winner);
-      expect(tab.inbox.filter((m) => m.t === "actionRejected" || m.t === "error")).toEqual([]);
+      expect(tab.inbox.filter((m) => m.t === "error")).toEqual([]);
+      for (const rejected of tab.inbox.filter((m) => m.t === "actionRejected")) expect(passes).toContain(rejected.clientSeq);
     }
   });
 
