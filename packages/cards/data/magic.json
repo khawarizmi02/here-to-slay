@@ -1,0 +1,119 @@
+[
+  {
+    "id": "magic_01",
+    "type": "magic",
+    "name": "Placeholder Insight",
+    "copies": 2,
+    "text": "DRAW 2 cards.",
+    "effect": {
+      "op": "draw",
+      "who": "self",
+      "amount": 2
+    }
+  },
+  {
+    "id": "magic_02",
+    "type": "magic",
+    "name": "Placeholder Tremor",
+    "copies": 2,
+    "text": "Each other player must DISCARD a card.",
+    "effect": {
+      "op": "forEach",
+      "players": "other",
+      "effect": {
+        "op": "discard",
+        "who": "self",
+        "amount": 1,
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "magic_03",
+    "type": "magic",
+    "name": "Placeholder Bolt",
+    "copies": 2,
+    "text": "DESTROY a Hero card.",
+    "effect": {
+      "op": "destroy",
+      "target": {
+        "owner": "other",
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "magic_04",
+    "type": "magic",
+    "name": "Placeholder Lure",
+    "copies": 1,
+    "text": "STEAL a Hero card.",
+    "effect": {
+      "op": "steal",
+      "from": {
+        "choose": "otherWithHeroes"
+      },
+      "target": {
+        "owner": "other",
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "magic_05",
+    "type": "magic",
+    "name": "Placeholder Bargain",
+    "copies": 2,
+    "text": "Choose one: DRAW 2 cards, or PULL a card.",
+    "effect": {
+      "op": "choice",
+      "chooser": "self",
+      "options": [
+        {
+          "label": "Draw 2 cards",
+          "effect": {
+            "op": "draw",
+            "who": "self",
+            "amount": 2
+          }
+        },
+        {
+          "label": "Pull a card",
+          "effect": {
+            "op": "pull",
+            "from": {
+              "choose": "otherWithCards"
+            },
+            "amount": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "magic_06",
+    "type": "magic",
+    "name": "Placeholder Offering",
+    "copies": 2,
+    "text": "You may DRAW 3 cards, then SACRIFICE a Hero card.",
+    "effect": {
+      "op": "optional",
+      "chooser": "self",
+      "effect": {
+        "op": "sequence",
+        "steps": [
+          {
+            "op": "draw",
+            "who": "self",
+            "amount": 3
+          },
+          {
+            "op": "sacrifice",
+            "who": "self",
+            "amount": 1
+          }
+        ]
+      }
+    }
+  }
+]

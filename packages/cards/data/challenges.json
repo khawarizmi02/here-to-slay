@@ -1,0 +1,9 @@
+[
+  {
+    "id": "challenge_01",
+    "type": "challenge",
+    "name": "Placeholder Challenge",
+    "copies": 8,
+    "text": "Challenge a Hero, Item or Magic card as it is played."
+  }
+]

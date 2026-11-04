@@ -1,0 +1,502 @@
+[
+  {
+    "id": "hero_bard_01",
+    "type": "hero",
+    "name": "Placeholder Bard 1",
+    "copies": 1,
+    "text": "Roll 8+: DRAW 2 cards.",
+    "class": "bard",
+    "rollRequirement": 8,
+    "effect": {
+      "op": "draw",
+      "who": "self",
+      "amount": 2
+    }
+  },
+  {
+    "id": "hero_bard_02",
+    "type": "hero",
+    "name": "Placeholder Bard 2",
+    "copies": 1,
+    "text": "Roll 7+: Choose one: DRAW 2 cards, or PULL a card.",
+    "class": "bard",
+    "rollRequirement": 7,
+    "effect": {
+      "op": "choice",
+      "chooser": "self",
+      "options": [
+        {
+          "label": "Draw 2 cards",
+          "effect": {
+            "op": "draw",
+            "who": "self",
+            "amount": 2
+          }
+        },
+        {
+          "label": "Pull a card",
+          "effect": {
+            "op": "pull",
+            "from": {
+              "choose": "otherWithCards"
+            },
+            "amount": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_bard_03",
+    "type": "hero",
+    "name": "Placeholder Bard 3",
+    "copies": 1,
+    "text": "Roll 6+: Each player DRAWS a card.",
+    "class": "bard",
+    "rollRequirement": 6,
+    "effect": {
+      "op": "forEach",
+      "players": "any",
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  },
+  {
+    "id": "hero_bard_04",
+    "type": "hero",
+    "name": "Placeholder Bard 4",
+    "copies": 1,
+    "text": "Roll 9+: PULL a card from another player.",
+    "class": "bard",
+    "rollRequirement": 9,
+    "effect": {
+      "op": "pull",
+      "from": {
+        "choose": "otherWithCards"
+      },
+      "amount": 1
+    }
+  },
+  {
+    "id": "hero_fighter_01",
+    "type": "hero",
+    "name": "Placeholder Fighter 1",
+    "copies": 1,
+    "text": "Roll 7+: Each other player must DISCARD a card.",
+    "class": "fighter",
+    "rollRequirement": 7,
+    "effect": {
+      "op": "forEach",
+      "players": "other",
+      "effect": {
+        "op": "discard",
+        "who": "self",
+        "amount": 1,
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "hero_fighter_02",
+    "type": "hero",
+    "name": "Placeholder Fighter 2",
+    "copies": 1,
+    "text": "Roll 10+: DESTROY a Hero card.",
+    "class": "fighter",
+    "rollRequirement": 10,
+    "effect": {
+      "op": "destroy",
+      "target": {
+        "owner": "other",
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "hero_fighter_03",
+    "type": "hero",
+    "name": "Placeholder Fighter 3",
+    "copies": 1,
+    "text": "Roll 8+: DESTROY a Hero card, then DISCARD a card.",
+    "class": "fighter",
+    "rollRequirement": 8,
+    "effect": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "destroy",
+          "target": {
+            "owner": "other",
+            "chosenBy": "self"
+          }
+        },
+        {
+          "op": "discard",
+          "who": "self",
+          "amount": 1,
+          "chosenBy": "self"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_fighter_04",
+    "type": "hero",
+    "name": "Placeholder Fighter 4",
+    "copies": 1,
+    "text": "Roll 6+: DESTROY a Hero card that has an item.",
+    "class": "fighter",
+    "rollRequirement": 6,
+    "effect": {
+      "op": "destroy",
+      "target": {
+        "owner": "other",
+        "hasItem": true,
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "hero_guardian_01",
+    "type": "hero",
+    "name": "Placeholder Guardian 1",
+    "copies": 1,
+    "text": "Roll 5+: DRAW a card.",
+    "class": "guardian",
+    "rollRequirement": 5,
+    "effect": {
+      "op": "draw",
+      "who": "self",
+      "amount": 1
+    }
+  },
+  {
+    "id": "hero_guardian_02",
+    "type": "hero",
+    "name": "Placeholder Guardian 2",
+    "copies": 1,
+    "text": "Roll 6+: DRAW 2 cards, then DISCARD a card.",
+    "class": "guardian",
+    "rollRequirement": 6,
+    "effect": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "draw",
+          "who": "self",
+          "amount": 2
+        },
+        {
+          "op": "discard",
+          "who": "self",
+          "amount": 1,
+          "chosenBy": "self"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_guardian_03",
+    "type": "hero",
+    "name": "Placeholder Guardian 3",
+    "copies": 1,
+    "text": "Roll 7+: You may DRAW 2 cards.",
+    "class": "guardian",
+    "rollRequirement": 7,
+    "effect": {
+      "op": "optional",
+      "chooser": "self",
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 2
+      }
+    }
+  },
+  {
+    "id": "hero_guardian_04",
+    "type": "hero",
+    "name": "Placeholder Guardian 4",
+    "copies": 1,
+    "text": "Roll 8+: Each other player DRAWS a card, then you DRAW 2.",
+    "class": "guardian",
+    "rollRequirement": 8,
+    "effect": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "forEach",
+          "players": "other",
+          "effect": {
+            "op": "draw",
+            "who": "self",
+            "amount": 1
+          }
+        },
+        {
+          "op": "draw",
+          "who": "self",
+          "amount": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_ranger_01",
+    "type": "hero",
+    "name": "Placeholder Ranger 1",
+    "copies": 1,
+    "text": "Roll 7+: PULL a card from another player.",
+    "class": "ranger",
+    "rollRequirement": 7,
+    "effect": {
+      "op": "pull",
+      "from": {
+        "choose": "otherWithCards"
+      },
+      "amount": 1
+    }
+  },
+  {
+    "id": "hero_ranger_02",
+    "type": "hero",
+    "name": "Placeholder Ranger 2",
+    "copies": 1,
+    "text": "Roll 9+: DESTROY a Wizard hero.",
+    "class": "ranger",
+    "rollRequirement": 9,
+    "effect": {
+      "op": "destroy",
+      "target": {
+        "owner": "other",
+        "class": "wizard",
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "hero_ranger_03",
+    "type": "hero",
+    "name": "Placeholder Ranger 3",
+    "copies": 1,
+    "text": "Roll 8+: DRAW a card and PULL a card.",
+    "class": "ranger",
+    "rollRequirement": 8,
+    "effect": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "draw",
+          "who": "self",
+          "amount": 1
+        },
+        {
+          "op": "pull",
+          "from": {
+            "choose": "otherWithCards"
+          },
+          "amount": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_ranger_04",
+    "type": "hero",
+    "name": "Placeholder Ranger 4",
+    "copies": 1,
+    "text": "Roll 10+: STEAL a Hero card with no item.",
+    "class": "ranger",
+    "rollRequirement": 10,
+    "effect": {
+      "op": "steal",
+      "from": {
+        "choose": "otherWithHeroes"
+      },
+      "target": {
+        "owner": "other",
+        "hasItem": false,
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "hero_thief_01",
+    "type": "hero",
+    "name": "Placeholder Thief 1",
+    "copies": 1,
+    "text": "Roll 10+: STEAL a Hero card.",
+    "class": "thief",
+    "rollRequirement": 10,
+    "effect": {
+      "op": "steal",
+      "from": {
+        "choose": "otherWithHeroes"
+      },
+      "target": {
+        "owner": "other",
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "hero_thief_02",
+    "type": "hero",
+    "name": "Placeholder Thief 2",
+    "copies": 1,
+    "text": "Roll 8+: PULL 2 cards from another player.",
+    "class": "thief",
+    "rollRequirement": 8,
+    "effect": {
+      "op": "pull",
+      "from": {
+        "choose": "otherWithCards"
+      },
+      "amount": 2
+    }
+  },
+  {
+    "id": "hero_thief_03",
+    "type": "hero",
+    "name": "Placeholder Thief 3",
+    "copies": 1,
+    "text": "Roll 9+: STEAL a Hero card that has an item.",
+    "class": "thief",
+    "rollRequirement": 9,
+    "effect": {
+      "op": "steal",
+      "from": {
+        "choose": "otherWithHeroes"
+      },
+      "target": {
+        "owner": "other",
+        "hasItem": true,
+        "chosenBy": "self"
+      }
+    }
+  },
+  {
+    "id": "hero_thief_04",
+    "type": "hero",
+    "name": "Placeholder Thief 4",
+    "copies": 1,
+    "text": "Roll 6+: PULL a card, then DISCARD a card.",
+    "class": "thief",
+    "rollRequirement": 6,
+    "effect": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "pull",
+          "from": {
+            "choose": "otherWithCards"
+          },
+          "amount": 1
+        },
+        {
+          "op": "discard",
+          "who": "self",
+          "amount": 1,
+          "chosenBy": "self"
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_wizard_01",
+    "type": "hero",
+    "name": "Placeholder Wizard 1",
+    "copies": 1,
+    "text": "Roll 8+: DRAW 2 cards.",
+    "class": "wizard",
+    "rollRequirement": 8,
+    "effect": {
+      "op": "draw",
+      "who": "self",
+      "amount": 2
+    }
+  },
+  {
+    "id": "hero_wizard_02",
+    "type": "hero",
+    "name": "Placeholder Wizard 2",
+    "copies": 1,
+    "text": "Roll 9+: Choose one: DRAW 3 cards, or DESTROY a Hero card.",
+    "class": "wizard",
+    "rollRequirement": 9,
+    "effect": {
+      "op": "choice",
+      "chooser": "self",
+      "options": [
+        {
+          "label": "Draw 3 cards",
+          "effect": {
+            "op": "draw",
+            "who": "self",
+            "amount": 3
+          }
+        },
+        {
+          "label": "Destroy a hero",
+          "effect": {
+            "op": "destroy",
+            "target": {
+              "owner": "other",
+              "chosenBy": "self"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_wizard_03",
+    "type": "hero",
+    "name": "Placeholder Wizard 3",
+    "copies": 1,
+    "text": "Roll 7+: Each other player must DISCARD a card, then you DRAW a card.",
+    "class": "wizard",
+    "rollRequirement": 7,
+    "effect": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "forEach",
+          "players": "other",
+          "effect": {
+            "op": "discard",
+            "who": "self",
+            "amount": 1,
+            "chosenBy": "self"
+          }
+        },
+        {
+          "op": "draw",
+          "who": "self",
+          "amount": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "hero_wizard_04",
+    "type": "hero",
+    "name": "Placeholder Wizard 4",
+    "copies": 1,
+    "text": "Roll 11+: Each other player must SACRIFICE a Hero card.",
+    "class": "wizard",
+    "rollRequirement": 11,
+    "effect": {
+      "op": "forEach",
+      "players": "other",
+      "effect": {
+        "op": "sacrifice",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  }
+]

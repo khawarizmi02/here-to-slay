@@ -1,0 +1,110 @@
+[
+  {
+    "id": "item_01",
+    "type": "item",
+    "name": "Placeholder Charm",
+    "copies": 2,
+    "text": "+1 to hero rolls.",
+    "passive": {
+      "hook": "modifyRollTotal",
+      "condition": {
+        "rollKind": "heroEffect"
+      },
+      "value": 1
+    }
+  },
+  {
+    "id": "item_02",
+    "type": "item",
+    "name": "Placeholder Lucky Coin",
+    "copies": 1,
+    "text": "After you roll for a hero, DRAW a card.",
+    "passive": {
+      "hook": "afterRoll",
+      "condition": {
+        "rollKind": "heroEffect"
+      },
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  },
+  {
+    "id": "mask_bard",
+    "type": "item",
+    "name": "Placeholder Bard Mask",
+    "copies": 1,
+    "text": "The equipped hero counts as a Bard.",
+    "maskClass": "bard"
+  },
+  {
+    "id": "mask_fighter",
+    "type": "item",
+    "name": "Placeholder Fighter Mask",
+    "copies": 1,
+    "text": "The equipped hero counts as a Fighter.",
+    "maskClass": "fighter"
+  },
+  {
+    "id": "mask_guardian",
+    "type": "item",
+    "name": "Placeholder Guardian Mask",
+    "copies": 1,
+    "text": "The equipped hero counts as a Guardian.",
+    "maskClass": "guardian"
+  },
+  {
+    "id": "mask_ranger",
+    "type": "item",
+    "name": "Placeholder Ranger Mask",
+    "copies": 1,
+    "text": "The equipped hero counts as a Ranger.",
+    "maskClass": "ranger"
+  },
+  {
+    "id": "mask_thief",
+    "type": "item",
+    "name": "Placeholder Thief Mask",
+    "copies": 1,
+    "text": "The equipped hero counts as a Thief.",
+    "maskClass": "thief"
+  },
+  {
+    "id": "mask_wizard",
+    "type": "item",
+    "name": "Placeholder Wizard Mask",
+    "copies": 1,
+    "text": "The equipped hero counts as a Wizard.",
+    "maskClass": "wizard"
+  },
+  {
+    "id": "cursed_01",
+    "type": "cursedItem",
+    "name": "Placeholder Curse",
+    "copies": 2,
+    "text": "-2 to hero rolls.",
+    "passive": {
+      "hook": "modifyRollTotal",
+      "condition": {
+        "rollKind": "heroEffect"
+      },
+      "value": -2
+    }
+  },
+  {
+    "id": "cursed_02",
+    "type": "cursedItem",
+    "name": "Placeholder Chains",
+    "copies": 1,
+    "text": "Rolling for a hero costs 1 more AP.",
+    "passive": {
+      "hook": "modifyActionCost",
+      "condition": {
+        "action": "ROLL_HERO_EFFECT"
+      },
+      "value": 1
+    }
+  }
+]

@@ -1,0 +1,322 @@
+[
+  {
+    "id": "monster_01",
+    "type": "monster",
+    "name": "Placeholder Beast",
+    "copies": 1,
+    "text": "Requires 2 heroes. 8+ to slay. 4-: SACRIFICE a hero. Reward: +1 to hero rolls.",
+    "requirement": {
+      "kind": "heroCount",
+      "min": 2
+    },
+    "slayAt": 8,
+    "defeatAt": 4,
+    "penalty": {
+      "op": "sacrifice",
+      "who": "self",
+      "amount": 1
+    },
+    "reward": {
+      "hook": "modifyRollTotal",
+      "condition": {
+        "rollKind": "heroEffect"
+      },
+      "value": 1
+    }
+  },
+  {
+    "id": "monster_02",
+    "type": "monster",
+    "name": "Placeholder Slime",
+    "copies": 1,
+    "text": "Requires nothing. 7+ to slay. 3-: DISCARD 2 cards. Reward: at the start of your turn, DRAW a card.",
+    "requirement": {
+      "kind": "none"
+    },
+    "slayAt": 7,
+    "defeatAt": 3,
+    "penalty": {
+      "op": "discard",
+      "who": "self",
+      "amount": 2,
+      "chosenBy": "self"
+    },
+    "reward": {
+      "hook": "onTurnStart",
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  },
+  {
+    "id": "monster_03",
+    "type": "monster",
+    "name": "Placeholder Wolf Pack",
+    "copies": 1,
+    "text": "Requires a Ranger. 8+ to slay. 4-: DISCARD a card. Reward: +2 to monster attack rolls.",
+    "requirement": {
+      "kind": "classCount",
+      "class": "ranger",
+      "min": 1
+    },
+    "slayAt": 8,
+    "defeatAt": 4,
+    "penalty": {
+      "op": "discard",
+      "who": "self",
+      "amount": 1,
+      "chosenBy": "self"
+    },
+    "reward": {
+      "hook": "modifyRollTotal",
+      "condition": {
+        "rollKind": "monsterAttack"
+      },
+      "value": 2
+    }
+  },
+  {
+    "id": "monster_04",
+    "type": "monster",
+    "name": "Placeholder Golem",
+    "copies": 1,
+    "text": "Requires 3 heroes including a Guardian. 9+ to slay. 5-: SACRIFICE a hero. Reward: attacking a monster costs 1 less AP.",
+    "requirement": {
+      "kind": "all",
+      "of": [
+        {
+          "kind": "heroCount",
+          "min": 3
+        },
+        {
+          "kind": "classCount",
+          "class": "guardian",
+          "min": 1
+        }
+      ]
+    },
+    "slayAt": 9,
+    "defeatAt": 5,
+    "penalty": {
+      "op": "sacrifice",
+      "who": "self",
+      "amount": 1
+    },
+    "reward": {
+      "hook": "modifyActionCost",
+      "condition": {
+        "action": "ATTACK_MONSTER"
+      },
+      "value": -1
+    }
+  },
+  {
+    "id": "monster_05",
+    "type": "monster",
+    "name": "Placeholder Wraith",
+    "copies": 1,
+    "text": "Requires a Wizard. 8+ to slay. 4-: DISCARD a card and SACRIFICE a hero. Reward: your hand limit is 2 higher.",
+    "requirement": {
+      "kind": "classCount",
+      "class": "wizard",
+      "min": 1
+    },
+    "slayAt": 8,
+    "defeatAt": 4,
+    "penalty": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "discard",
+          "who": "self",
+          "amount": 1,
+          "chosenBy": "self"
+        },
+        {
+          "op": "sacrifice",
+          "who": "self",
+          "amount": 1
+        }
+      ]
+    },
+    "reward": {
+      "hook": "modifyHandLimit",
+      "value": 2
+    }
+  },
+  {
+    "id": "monster_06",
+    "type": "monster",
+    "name": "Placeholder Ogre",
+    "copies": 1,
+    "text": "Requires a Fighter. 9+ to slay. 4-: SACRIFICE a hero. Reward: when you slay a monster, DRAW 2 cards.",
+    "requirement": {
+      "kind": "classCount",
+      "class": "fighter",
+      "min": 1
+    },
+    "slayAt": 9,
+    "defeatAt": 4,
+    "penalty": {
+      "op": "sacrifice",
+      "who": "self",
+      "amount": 1
+    },
+    "reward": {
+      "hook": "onMonsterSlain",
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 2
+      }
+    }
+  },
+  {
+    "id": "monster_07",
+    "type": "monster",
+    "name": "Placeholder Harpy",
+    "copies": 1,
+    "text": "Requires 2 heroes. 7+ to slay. 3-: DISCARD 2 cards. Reward: at the end of your turn, you may PULL a card.",
+    "requirement": {
+      "kind": "heroCount",
+      "min": 2
+    },
+    "slayAt": 7,
+    "defeatAt": 3,
+    "penalty": {
+      "op": "discard",
+      "who": "self",
+      "amount": 2,
+      "chosenBy": "self"
+    },
+    "reward": {
+      "hook": "onTurnEnd",
+      "effect": {
+        "op": "optional",
+        "chooser": "self",
+        "effect": {
+          "op": "pull",
+          "from": {
+            "choose": "otherWithCards"
+          },
+          "amount": 1
+        }
+      }
+    }
+  },
+  {
+    "id": "monster_08",
+    "type": "monster",
+    "name": "Placeholder Basilisk",
+    "copies": 1,
+    "text": "Requires a Thief. 8+ to slay. 5-: SACRIFICE a hero. Reward: before you attack a monster, DRAW a card.",
+    "requirement": {
+      "kind": "classCount",
+      "class": "thief",
+      "min": 1
+    },
+    "slayAt": 8,
+    "defeatAt": 5,
+    "penalty": {
+      "op": "sacrifice",
+      "who": "self",
+      "amount": 1
+    },
+    "reward": {
+      "hook": "beforeRoll",
+      "condition": {
+        "rollKind": "monsterAttack"
+      },
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  },
+  {
+    "id": "monster_09",
+    "type": "monster",
+    "name": "Placeholder Siren",
+    "copies": 1,
+    "text": "Requires a Bard. 8+ to slay. 4-: DISCARD a card. Reward: when a hero enters your party, DRAW a card.",
+    "requirement": {
+      "kind": "classCount",
+      "class": "bard",
+      "min": 1
+    },
+    "slayAt": 8,
+    "defeatAt": 4,
+    "penalty": {
+      "op": "discard",
+      "who": "self",
+      "amount": 1,
+      "chosenBy": "self"
+    },
+    "reward": {
+      "hook": "onHeroEnterParty",
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  },
+  {
+    "id": "monster_10",
+    "type": "monster",
+    "name": "Placeholder Dragon",
+    "copies": 1,
+    "text": "Requires 4 heroes including a Wizard and a Fighter. 10+ to slay. 6-: SACRIFICE a hero and DISCARD 2 cards. Reward: when you play a Magic card, DRAW a card.",
+    "requirement": {
+      "kind": "all",
+      "of": [
+        {
+          "kind": "heroCount",
+          "min": 4
+        },
+        {
+          "kind": "classCount",
+          "class": "wizard",
+          "min": 1
+        },
+        {
+          "kind": "classCount",
+          "class": "fighter",
+          "min": 1
+        }
+      ]
+    },
+    "slayAt": 10,
+    "defeatAt": 6,
+    "penalty": {
+      "op": "sequence",
+      "steps": [
+        {
+          "op": "sacrifice",
+          "who": "self",
+          "amount": 1
+        },
+        {
+          "op": "discard",
+          "who": "self",
+          "amount": 2,
+          "chosenBy": "self"
+        }
+      ]
+    },
+    "reward": {
+      "hook": "onCardPlayed",
+      "condition": {
+        "action": "PLAY_MAGIC"
+      },
+      "effect": {
+        "op": "draw",
+        "who": "self",
+        "amount": 1
+      }
+    }
+  }
+]
