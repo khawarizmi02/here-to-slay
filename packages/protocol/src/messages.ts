@@ -72,7 +72,7 @@ export const RoomMsgSchema = z.discriminatedUnion("t", [
     t: z.literal("lobby"),
     roomCode: RoomCodeSchema,
     seats: z.array(LobbySeatSchema).max(6),
-    /** The Seats that belong to the recipient (several for a hot-seat device). */
+    /** The recipient's Seat. Each connection belongs to one Seat, so a hot-seat device holds one connection per local Seat. */
     you: z.array(SeatIdSchema),
   }),
   z.strictObject({
