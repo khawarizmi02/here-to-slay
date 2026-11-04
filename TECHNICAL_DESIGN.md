@@ -133,6 +133,8 @@ Checked immediately after any state change, not just at end of turn:
 - **Monster win:** a player has slain 3 monsters. ⚙️ `monstersToWin` (default 3)
 - **Class win:** a player's party contains 6 distinct classes. The Party Leader's class counts, and Mask items change a hero's class. ⚙️ `classesToWin` (default 6)
 
+The active player is checked first, then the others in turn order. A player who meets both conditions at once wins by monsters.
+
 If a win condition is met in the middle of a resolution, finish the current atomic effect and then end the game. ⚙️ `winCheckTiming` (default `"immediate"`)
 
 ### 3.4 Turn structure
@@ -448,8 +450,8 @@ export interface PassiveAbility {
 
 The engine calls `runHooks(state, hookPoint, context)` at each hook point and gathers every passive from leaders, items, and slain monsters.
 
-- An item's passive applies to rolls only when the hero wearing it is the one rolling. At other hooks it applies to the whole party of the hero's owner, including a Cursed item on an opponent's hero.
-- A trigger passive runs as an effect on the stack, controlled by the passive's owner. `beforeRoll` runs before the dice, `afterRoll` right after them (before a successful hero's effect), `onHeroEnterParty` and `onHeroLeaveParty` as a hero joins or leaves a party, and `onCardPlayed` once the played card has resolved.
+- An item's passive applies to rolls only when the hero wearing it is the one rolling. A monster attack is the whole party's roll, so every item in the attacker's party counts for it. At other hooks it applies to the whole party of the hero's owner, including a Cursed item on an opponent's hero.
+- A trigger passive runs as an effect on the stack, controlled by the passive's owner. `beforeRoll` runs before the dice, `afterRoll` right after them (before a successful hero's effect), `onHeroEnterParty` and `onHeroLeaveParty` as a hero joins or leaves a party, and `onCardPlayed` once the played card has resolved. `onTurnStart` and `onTurnEnd` passives run on the stack too, so they may ask Decisions; the rest of the turn's start or end waits for them.
 
 ### 5.5 Extensibility for expansions
 - New classes: extend `HeroClass` and update `classesToWin`.
@@ -637,7 +639,7 @@ export type Phase =
   | { kind: "gameOver" };
 ```
 
-Only phases that can wait on a player are stored. The first-player roll, the start of a turn, and an end of turn with no discard to make need no input, so they run straight through and no state is ever left in them. The phase is `resolving` while anything is on the stack, and goes back to `action` once the stack is empty.
+Only phases that can wait on a player are stored. The first-player roll needs no input, so it runs straight through. Start- and end-of-turn passives run on the stack, so a turn's start or end waits in `resolving` only while one of them asks a Decision, and an end of turn with no discard to make leaves no state behind. The phase is `resolving` while anything is on the stack, and goes back to `action` once the stack is empty.
 
 At the end of a turn, end-of-turn hooks run first and then the hand-limit discard, so nobody passes the turn over the limit. Each discard is one Decision ("Discard down to your hand limit of 7 (1 of 2)").
 

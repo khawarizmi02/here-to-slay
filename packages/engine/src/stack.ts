@@ -1,12 +1,13 @@
 import type { Effect, HeroFilter, PassiveAbility, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
 import { heroDef, startHeroRoll } from "./heroes.js";
+import { monsterAttackOutcome, monsterDef, pushPenalty, slayMonster } from "./monsters.js";
 import { discardHero, heroesMatching, stealHero, type OwnedHero } from "./party.js";
 import { passiveSourcesAt, rollBonus, type HookContext } from "./passives.js";
 import { fromPlayer, playerState } from "./players.js";
 import { nextInt, rollD6 } from "./rng.js";
 import { heroClass } from "./selectors.js";
-import { discardFromHand, drawCards } from "./turns.js";
+import { discardFromHand, drawCards, turnStep } from "./turns.js";
 import { checkWin } from "./wins.js";
 import {
   ACCEPT,
@@ -60,6 +61,8 @@ function step(defs: CardIndex, state: GameState, events: GameEvent[]): void {
       return effectStep(defs, state, frame, events);
     case "magic":
       return magic(defs, state, frame, events);
+    case "turn":
+      return turnStep(defs, state, frame, events);
   }
 }
 
@@ -133,11 +136,16 @@ function freeRoll(defs: CardIndex, state: GameState, frame: FreeRollFrame, event
 
 /**
  * Runs the roller's beforeRoll passives, then rolls 2d6 and adds passive
- * bonuses. On a success the hero's effect goes on the stack, under the
- * roller's afterRoll passives, which run first.
+ * bonuses, then settles the roll: a hero roll's success puts the hero's
+ * effect on the stack, and a monster attack slays, applies the penalty or
+ * does nothing. The roller's afterRoll passives go on top, so they run first.
  */
 function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameEvent[]): void {
-  const ctx: HookContext = { rollKind: frame.rollKind, heroClass: heroClass(defs, state, frame.hero), hero: frame.hero };
+  // A monster attack is the whole party's roll, so every item on it counts.
+  const ctx: HookContext =
+    frame.rollKind === "heroEffect"
+      ? { rollKind: frame.rollKind, heroClass: heroClass(defs, state, frame.hero), hero: frame.hero }
+      : { rollKind: frame.rollKind };
   if (frame.stage === "beforeRoll") {
     frame.stage = "dice";
     pushTriggers(defs, state, frame.roller, "beforeRoll", ctx);
@@ -148,22 +156,21 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
   let b: number;
   [a, state.rng] = rollD6(state.rng);
   [b, state.rng] = rollD6(state.rng);
-  const def = heroDef(defs, state, frame.hero)!;
   const bonus = rollBonus(defs, state, frame.roller, ctx);
   const total = a + b + bonus;
-  const succeeded = total >= def.rollRequirement;
-  events.push({
-    type: "DICE_ROLLED",
-    roll: frame.rollId,
-    player: frame.roller,
-    rollKind: frame.rollKind,
-    hero: { id: frame.hero, def: def.id },
-    dice: [a, b],
-    bonus,
-    total,
-    succeeded,
-  });
-  if (succeeded) state.stack.push(effectFrame(def.effect, frame.roller, frame.roller, frame.hero));
+  const rolled = { type: "DICE_ROLLED" as const, roll: frame.rollId, player: frame.roller, dice: [a, b] as [number, number], bonus, total };
+  if (frame.rollKind === "heroEffect") {
+    const def = heroDef(defs, state, frame.hero)!;
+    const succeeded = total >= def.rollRequirement;
+    events.push({ ...rolled, rollKind: "heroEffect", hero: { id: frame.hero, def: def.id }, succeeded });
+    if (succeeded) state.stack.push(effectFrame(def.effect, frame.roller, frame.roller, frame.hero));
+  } else {
+    const def = monsterDef(defs, state, frame.monster)!;
+    const outcome = monsterAttackOutcome(def, total);
+    events.push({ ...rolled, rollKind: "monsterAttack", monster: { id: frame.monster, def: def.id }, outcome });
+    if (outcome === "slain") slayMonster(defs, state, frame.roller, frame.monster, events);
+    if (outcome === "defeated") pushPenalty(defs, state, frame.roller, frame.monster);
+  }
   pushTriggers(defs, state, frame.roller, "afterRoll", ctx);
 }
 

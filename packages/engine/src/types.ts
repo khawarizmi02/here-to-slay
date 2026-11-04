@@ -29,8 +29,9 @@ export interface PlayerState {
 /**
  * §6.3. The only setup step a player sees is the leader draft: the
  * first-player roll needs no input, so it happens as soon as it is reached.
- * Likewise the start of a turn needs no input, so no state is ever in it,
- * and the end of a turn is a phase only while a hand-limit discard waits.
+ * A turn's start- and end-of-turn passives run on the stack, so the phase is
+ * "resolving" while one waits on a Decision; the end of a turn is its own
+ * phase only while a hand-limit discard waits.
  */
 export type Phase =
   | { kind: "setup"; step: "leaderSelect" }
@@ -108,16 +109,17 @@ export interface FreeRollFrame {
   awaiting: string | null;
 }
 
-/** A 2d6 roll. In M2 its total is final as soon as the dice land: no Modifier Window opens yet (#48). */
-export interface RollFrame {
+/**
+ * A 2d6 roll: for a hero's effect, or to attack a monster. In M2 its total is
+ * final as soon as the dice land: no Modifier Window opens yet (#48).
+ */
+export type RollFrame = {
   kind: "roll";
   rollId: string;
   roller: PlayerId;
-  rollKind: "heroEffect";
-  hero: CardInstanceId;
   /** "beforeRoll" until the roller's beforeRoll passives are on the stack, then "dice". */
   stage: "beforeRoll" | "dice";
-}
+} & ({ rollKind: "heroEffect"; hero: CardInstanceId } | { rollKind: "monsterAttack"; monster: CardInstanceId });
 
 /**
  * A Magic card being played (§3.5). While it resolves the card is in no
@@ -132,8 +134,17 @@ export interface MagicFrame {
   started: boolean;
 }
 
+/**
+ * The rest of a turn's start or end, under that hook's trigger passives: the
+ * free draw (`drawAtStartOfTurn`), or the hand-limit discard and passing the turn.
+ */
+export interface TurnFrame {
+  kind: "turn";
+  step: "startDraw" | "end";
+}
+
 /** The top of the stack is the last element (§7.1). */
-export type StackFrame = EffectFrame | FreeRollFrame | RollFrame | MagicFrame;
+export type StackFrame = EffectFrame | FreeRollFrame | RollFrame | MagicFrame | TurnFrame;
 
 /** One player's 2d6 in a first-player roll. */
 export interface FirstPlayerRoll {
@@ -213,18 +224,20 @@ export type GameEvent =
   | { type: "ITEM_DISCARDED"; player: PlayerId; item: CardView }
   /** `player` took a random card from `from`'s hand. `card` is present only in their two copies of the event. */
   | { type: "CARD_PULLED"; player: PlayerId; from: PlayerId; card?: CardView }
-  /** A hero's effect roll: `bonus` is from passives, and the roll succeeds when `total` is at least the hero's requirement. */
-  | {
-      type: "DICE_ROLLED";
-      roll: string;
-      player: PlayerId;
-      rollKind: "heroEffect";
-      hero: CardView;
-      dice: [number, number];
-      bonus: number;
-      total: number;
-      succeeded: boolean;
-    }
+  /**
+   * A roll: `bonus` is from passives. A hero's effect roll succeeds when
+   * `total` is at least the hero's requirement. A monster attack slays the
+   * monster at or above its slay value, is defeated at or below its defeat
+   * value, and otherwise does nothing.
+   */
+  | ({ type: "DICE_ROLLED"; roll: string; player: PlayerId; dice: [number, number]; bonus: number; total: number } & (
+      | { rollKind: "heroEffect"; hero: CardView; succeeded: boolean }
+      | { rollKind: "monsterAttack"; monster: CardView; outcome: "slain" | "defeated" | "nothing" }
+    ))
+  /** `player` slew `monster`: it went to their slain pile. */
+  | { type: "MONSTER_SLAIN"; player: PlayerId; monster: CardView }
+  /** `monster` was revealed from the monster deck to fill an empty slot. */
+  | { type: "MONSTER_REVEALED"; monster: CardView }
   | { type: "GAME_WON"; player: PlayerId; reason: "monsters" | "classes" }
   /** The discard pile was shuffled into a new main deck of `cards` cards. */
   | { type: "DECK_RESHUFFLED"; cards: number };

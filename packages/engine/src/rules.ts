@@ -3,6 +3,7 @@ import { clone } from "./clone.js";
 import { actionCost } from "./passives.js";
 import { playableHeroes, playHero, rollableHeroes, rollHeroEffect } from "./heroes.js";
 import { playableItems, playableMagic, playItem, playMagic } from "./plays.js";
+import { attackableMonsters, attackMonster } from "./monsters.js";
 import { leaderChosen } from "./setup.js";
 import { runStack, stackAnswered } from "./stack.js";
 import { canDraw, discardAndRedraw, drawCards, endTurn, handLimitDiscarded, settleTurn } from "./turns.js";
@@ -40,6 +41,7 @@ export function getLegalActions(defs: CardIndex, state: GameState, player: Playe
   if (affordable("PLAY_ITEM")) for (const { card, targetHero } of playableItems(defs, state, player)) actions.push({ type: "PLAY_ITEM", player, card, targetHero });
   if (affordable("PLAY_MAGIC")) for (const card of playableMagic(defs, state, player)) actions.push({ type: "PLAY_MAGIC", player, card });
   if (affordable("ROLL_HERO_EFFECT")) for (const hero of rollableHeroes(state, player)) actions.push({ type: "ROLL_HERO_EFFECT", player, hero });
+  if (affordable("ATTACK_MONSTER")) for (const monster of attackableMonsters(defs, state, player)) actions.push({ type: "ATTACK_MONSTER", player, monster });
   if (affordable("DISCARD_AND_REDRAW")) actions.push({ type: "DISCARD_AND_REDRAW", player });
   actions.push({ type: "END_TURN", player });
   return actions;
@@ -89,6 +91,9 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
       break;
     case "ROLL_HERO_EFFECT":
       rollHeroEffect(defs, state, action.player, action.hero, events);
+      break;
+    case "ATTACK_MONSTER":
+      attackMonster(defs, state, action.player, action.monster, events);
       break;
     case "DISCARD_AND_REDRAW":
       discardAndRedraw(state, action.player, events);

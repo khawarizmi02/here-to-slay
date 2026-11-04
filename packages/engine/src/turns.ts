@@ -1,8 +1,9 @@
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
 import { fromPlayer, playerState } from "./players.js";
-import { handLimit, passivesAt } from "./passives.js";
+import { handLimit } from "./passives.js";
 import { shuffle } from "./rng.js";
-import type { CardIndex, GameEvent, GameState, PlayerId } from "./types.js";
+import { pushTriggers, runStack } from "./stack.js";
+import type { CardIndex, GameEvent, GameState, PlayerId, TurnFrame } from "./types.js";
 
 /** Cards a Discard and Redraw draws (§3.5). */
 export const REDRAW_COUNT = 5;
@@ -54,23 +55,14 @@ export function startTurn(defs: CardIndex, state: GameState, player: PlayerId, e
   for (const p of state.players) for (const hero of p.party) hero.rolledThisTurn = false;
   state.phase = { kind: "action" };
   events.push({ type: "TURN_STARTED", player, turnNumber: state.turnNumber });
-  runTriggers(defs, state, player, "onTurnStart", events);
-  if (state.config.drawAtStartOfTurn) drawCards(state, player, 1, events);
+  state.stack.push({ kind: "turn", step: "startDraw" });
+  pushTriggers(defs, state, player, "onTurnStart");
+  runStack(defs, state, events);
 }
 
-/**
- * Runs `player`'s passives at a trigger hook. The only effect a passive can
- * have here is a draw for now: a trigger that could pause on a Decision
- * would have to put the rest of the turn's start or end on the stack too.
- */
-function runTriggers(defs: CardIndex, state: GameState, player: PlayerId, hook: "onTurnStart" | "onTurnEnd", events: GameEvent[]): void {
-  for (const passive of passivesAt(defs, state, player, hook)) {
-    const effect = passive.effect;
-    if (effect?.op !== "draw" || typeof effect.who !== "string") {
-      throw new Error(`A ${hook} passive can only draw for now, not ${JSON.stringify(passive)}`);
-    }
-    drawCards(state, effect.who === "self" ? player : state.activePlayer, effect.amount, events);
-  }
+/** The free draw at the start of a turn, once the start-of-turn passives are done. */
+function startDraw(state: GameState, events: GameEvent[]): void {
+  if (state.config.drawAtStartOfTurn) drawCards(state, state.activePlayer, 1, events);
 }
 
 /**
@@ -87,7 +79,15 @@ export function settleTurn(defs: CardIndex, state: GameState, events: GameEvent[
  * player's turn, clockwise.
  */
 export function endTurn(defs: CardIndex, state: GameState, events: GameEvent[]): void {
-  runTriggers(defs, state, state.activePlayer, "onTurnEnd", events);
+  state.stack.push({ kind: "turn", step: "end" });
+  pushTriggers(defs, state, state.activePlayer, "onTurnEnd");
+  runStack(defs, state, events);
+}
+
+/** Steps a TurnFrame: the rest of the turn's start or end. */
+export function turnStep(defs: CardIndex, state: GameState, frame: TurnFrame, events: GameEvent[]): void {
+  state.stack.pop();
+  if (frame.step === "startDraw") return startDraw(state, events);
   state.phase = { kind: "turnEnd", discarded: 0 };
   continueTurnEnd(defs, state, events);
 }
