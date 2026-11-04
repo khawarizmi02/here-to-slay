@@ -2,6 +2,12 @@
 
 A digital version of the *Here to Slay* card game for friends playing together, in person or online.
 
+## Game
+
+**Decision**:
+One pick that the game asks one player to make, such as a card to discard or a hero to steal. Every Decision is exactly one pick. Choosing several cards is a chain of Decisions, one per card. A "you may" Decision includes an explicit Decline option.
+_Avoid_: Prompt, multi-select, choice (a `choice` is an effect op)
+
 ## Multiplayer
 
 **Room**:
