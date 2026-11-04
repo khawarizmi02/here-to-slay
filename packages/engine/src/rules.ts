@@ -1,8 +1,9 @@
 import type { CostedAction } from "@here-to-slay/cards";
 import { clone } from "./clone.js";
 import { actionCost } from "./passives.js";
-import { playableHeroes, playHero, rollableHeroes, rollHeroEffect } from "./heroes.js";
-import { playableItems, playableMagic, playItem, playMagic } from "./plays.js";
+import { pass, playChallenge, responseActions } from "./challenges.js";
+import { playableHeroes, rollableHeroes, rollHeroEffect } from "./heroes.js";
+import { playableItems, playableMagic, playCard } from "./plays.js";
 import { attackableMonsters, attackMonster } from "./monsters.js";
 import { leaderChosen } from "./setup.js";
 import { runStack, stackAnswered } from "./stack.js";
@@ -21,11 +22,13 @@ const RESOLVERS: Record<PendingDecision["resume"], DecisionResolver> = {
 };
 
 type TurnAction = Extract<Action, { type: CostedAction | "END_TURN" }>;
+type ResponseAction = Extract<Action, { type: "PASS" | "PLAY_CHALLENGE" }>;
 
 /**
  * Every action `player` may take now: one RESOLVE_DECISION per option of
- * their pending Decision, or, for the active player in the action phase
- * with nothing pending, the turn actions they can pay for.
+ * their pending Decision; in a Challenge Window that waits on them, PASS and
+ * their Challenges; or, for the active player in the action phase with
+ * nothing pending, the turn actions they can pay for.
  */
 export function getLegalActions(defs: CardIndex, state: GameState, player: PlayerId): Action[] {
   const decision = state.pendingDecision;
@@ -33,6 +36,8 @@ export function getLegalActions(defs: CardIndex, state: GameState, player: Playe
     if (decision.player !== player) return [];
     return decision.options.map((o) => ({ type: "RESOLVE_DECISION", player, decisionId: decision.id, answer: { selected: [o.id] } }));
   }
+  const responses = responseActions(defs, state, player);
+  if (responses !== undefined) return responses;
   if (state.phase.kind !== "action" || state.activePlayer !== player) return [];
   const actions: TurnAction[] = [];
   const affordable = (type: CostedAction) => actionCost(defs, state, player, type) <= state.actionPoints;
@@ -64,6 +69,8 @@ export function applyAction(defs: CardIndex, state: GameState, action: Action): 
     const [choice] = action.answer.selected;
     next.pendingDecision = null;
     RESOLVERS[decision.resume](defs, next, decision, choice, events);
+  } else if (action.type === "PASS" || action.type === "PLAY_CHALLENGE") {
+    response(defs, next, action, events);
   } else {
     turnAction(defs, next, action as TurnAction, events);
   }
@@ -81,13 +88,13 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
       drawCards(state, action.player, 1, events);
       break;
     case "PLAY_HERO":
-      playHero(defs, state, action.player, action.card, events);
+      playCard(defs, state, action.player, action.card, "PLAY_HERO", null, events);
       break;
     case "PLAY_ITEM":
-      playItem(defs, state, action.player, action.card, action.targetHero, events);
+      playCard(defs, state, action.player, action.card, "PLAY_ITEM", action.targetHero, events);
       break;
     case "PLAY_MAGIC":
-      playMagic(defs, state, action.player, action.card, events);
+      playCard(defs, state, action.player, action.card, "PLAY_MAGIC", null, events);
       break;
     case "ROLL_HERO_EFFECT":
       rollHeroEffect(defs, state, action.player, action.hero, events);
@@ -104,6 +111,13 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
   }
 }
 
+/** A response in a Challenge Window: it costs no AP (§3.7). */
+function response(defs: CardIndex, state: GameState, action: ResponseAction, events: GameEvent[]): void {
+  if (action.type === "PASS") pass(state, action.player);
+  else playChallenge(defs, state, action.player, action.card, events);
+  runStack(defs, state, events);
+}
+
 function rejectionReason(defs: CardIndex, state: GameState, action: Action): string | undefined {
   if (state.phase.kind === "gameOver") return "The game is over";
   if (!state.players.some((p) => p.id === action.player)) return `Unknown player ${action.player}`;
@@ -115,7 +129,7 @@ function rejectionReason(defs: CardIndex, state: GameState, action: Action): str
     if (!decision.options.some((o) => o.id === choice)) return `${choice} is not an option`;
     return undefined;
   }
-  // A turn action is legal exactly when it is listed, card and all.
+  // A turn action or a response is legal exactly when it is listed, card and all.
   const key = actionKey(action);
   if (getLegalActions(defs, state, action.player).some((a) => actionKey(a) === key)) return undefined;
   return `${action.type} is not a legal action right now`;

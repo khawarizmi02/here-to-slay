@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { act, decision, dice, engineWith, equip, give, hand, inParty, leader, party, start } from "./scenario.js";
+import { act, decision, dice, engineWith, equip, give, hand, inParty, leader, party, play, start } from "./scenario.js";
 
 /** Extra items for these tests: a +2 charm, a -2 curse and a plain curse. */
 const ITEMS = [
@@ -83,11 +83,11 @@ describe("playing an item", () => {
   it("spends 1 AP and equips the item to the hero", () => {
     const e = engine();
     const state = give(inParty(start(e), "p2", "hero_thief#0"), "p1", "cursed_minus#0");
-    const r = act(e, state, { type: "PLAY_ITEM", player: "p1", card: "cursed_minus#0", targetHero: "hero_thief#0" });
+    const r = play(e, state, { type: "PLAY_ITEM", player: "p1", card: "cursed_minus#0", targetHero: "hero_thief#0" });
     expect(r.state.actionPoints).toBe(2);
     expect(hand(r.state, "p1")).not.toContain("cursed_minus#0");
     expect(party(r.state, "p2")).toEqual([{ instanceId: "hero_thief#0", equippedItem: "cursed_minus#0", rolledThisTurn: false }]);
-    expect(r.events).toEqual([
+    expect(r.events.slice(1)).toEqual([
       { type: "ITEM_PLAYED", player: "p1", card: { id: "cursed_minus#0", def: "cursed_minus" }, owner: "p2", hero: { id: "hero_thief#0", def: "hero_thief" } },
     ]);
     expect(e.getPlayerView(r.state, "p3").players[1]!.party[0]!.item).toEqual({ id: "cursed_minus#0", def: "cursed_minus" });
@@ -101,7 +101,7 @@ describe("Mask items", () => {
     inParty(state, "p1", "hero_fighter#0", "hero_guardian#0", "hero_ranger#0", "hero_wizard#0", "hero_fighter#1");
     give(state, "p1", "item_mask_thief#0");
     expect(state.winner).toBeNull();
-    const r = act(e, state, { type: "PLAY_ITEM", player: "p1", card: "item_mask_thief#0", targetHero: "hero_fighter#1" });
+    const r = play(e, state, { type: "PLAY_ITEM", player: "p1", card: "item_mask_thief#0", targetHero: "hero_fighter#1" });
     expect(r.state.winner).toBe("p1");
     expect(r.state.winReason).toBe("classes");
     expect(r.events.at(-1)).toEqual({ type: "GAME_WON", player: "p1", reason: "classes" });
@@ -113,7 +113,7 @@ describe("item passives", () => {
     const e = engine();
     const state = inParty(start(e), "p1", "hero_bard#0");
     give(state, "p1", "item_charm#0");
-    const equipped = act(e, state, { type: "PLAY_ITEM", player: "p1", card: "item_charm#0", targetHero: "hero_bard#0" }).state;
+    const equipped = play(e, state, { type: "PLAY_ITEM", player: "p1", card: "item_charm#0", targetHero: "hero_bard#0" }).state;
     const r = act(e, dice(equipped, 3, 2), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_bard#0" });
     expect(r.events[0]).toMatchObject({ type: "DICE_ROLLED", dice: [3, 2], bonus: 2, total: 7, succeeded: true });
   });
@@ -145,15 +145,15 @@ describe("item passives", () => {
   it("run at a trigger hook: onCardPlayed, after the Magic card resolves", () => {
     const e = engine();
     const state = give(equip(inParty(start(e), "p1", "hero_bard#0"), "hero_bard#0", "item_scroll#0"), "p1", "magic_draw#0");
-    const r = act(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_draw#0" });
-    expect(r.events.map((ev) => ev.type)).toEqual(["MAGIC_PLAYED", "CARD_DRAWN", "CARD_DRAWN", "MAGIC_DISCARDED", "CARD_DRAWN"]);
+    const r = play(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_draw#0" });
+    expect(r.events.map((ev) => ev.type)).toEqual(["CHALLENGE_WINDOW_OPENED", "MAGIC_PLAYED", "CARD_DRAWN", "CARD_DRAWN", "MAGIC_DISCARDED", "CARD_DRAWN"]);
   });
 
   it("run at a trigger hook: onHeroEnterParty", () => {
     const e = engine();
     const state = give(equip(inParty(start(e, { freeRollOnHeroPlay: false }), "p1", "hero_bard#0"), "hero_bard#0", "item_banner#0"), "p1", "hero_fighter#0");
-    const r = act(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_fighter#0" });
-    expect(r.events.map((ev) => ev.type)).toEqual(["HERO_PLAYED", "CARD_DRAWN"]);
+    const r = play(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_fighter#0" });
+    expect(r.events.map((ev) => ev.type)).toEqual(["CHALLENGE_WINDOW_OPENED", "HERO_PLAYED", "CARD_DRAWN"]);
   });
 });
 
@@ -191,11 +191,11 @@ describe("playing a Magic card", () => {
     inParty(state, "p1", "hero_fighter#0", "hero_guardian#0", "hero_ranger#0", "hero_wizard#0");
     inParty(state, "p2", "hero_thief#0");
     give(state, "p1", "magic_lure#0");
-    const r = act(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_lure#0" });
+    const r = play(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_lure#0" });
     expect(r.state.winner).toBe("p1");
     expect(r.state.stack).toEqual([]);
     expect(r.state.discardPile.at(-1)).toBe("magic_lure#0");
-    expect(r.events.map((ev) => ev.type)).toEqual(["MAGIC_PLAYED", "HERO_STOLEN", "MAGIC_DISCARDED", "GAME_WON"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["CHALLENGE_WINDOW_OPENED", "MAGIC_PLAYED", "HERO_STOLEN", "MAGIC_DISCARDED", "GAME_WON"]);
   });
 
   it("is legal for every Magic card in hand", () => {
@@ -209,19 +209,19 @@ describe("playing a Magic card", () => {
     const e = magicEngine();
     const state = give(start(e), "p1", "magic_draw#0");
     const before = hand(state, "p1").length;
-    const r = act(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_draw#0" });
+    const r = play(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_draw#0" });
     expect(r.state.actionPoints).toBe(2);
     expect(hand(r.state, "p1")).toHaveLength(before - 1 + 2);
     expect(r.state.discardPile.at(-1)).toBe("magic_draw#0");
-    expect(r.events.map((ev) => ev.type)).toEqual(["MAGIC_PLAYED", "CARD_DRAWN", "CARD_DRAWN", "MAGIC_DISCARDED"]);
-    expect(r.events[0]).toEqual({ type: "MAGIC_PLAYED", player: "p1", card: { id: "magic_draw#0", def: "magic_draw" } });
+    expect(r.events.map((ev) => ev.type)).toEqual(["CHALLENGE_WINDOW_OPENED", "MAGIC_PLAYED", "CARD_DRAWN", "CARD_DRAWN", "MAGIC_DISCARDED"]);
+    expect(r.events[1]).toEqual({ type: "MAGIC_PLAYED", player: "p1", card: { id: "magic_draw#0", def: "magic_draw" } });
     expect(r.state.phase).toEqual({ kind: "action" });
   });
 
   it("stays out of the discard pile until its Decisions are answered", () => {
     const e = magicEngine();
     const state = give(inParty(start(e), "p2", "hero_bard#0", "hero_fighter#0"), "p1", "magic_bolt#0");
-    const played = act(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_bolt#0" }).state;
+    const played = play(e, state, { type: "PLAY_MAGIC", player: "p1", card: "magic_bolt#0" }).state;
     expect(decision(played)).toMatchObject({ player: "p1", kind: "chooseHero" });
     expect(played.discardPile).not.toContain("magic_bolt#0");
     expect(hand(played, "p1")).not.toContain("magic_bolt#0");

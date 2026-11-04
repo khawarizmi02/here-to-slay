@@ -2,22 +2,25 @@ import { loadCardDefs, type Effect, type PlayerRef } from "@here-to-slay/cards";
 import type { Action, ConfigPatch } from "@here-to-slay/protocol";
 import { describe, expect, it } from "vitest";
 import { createRoomEngine, type GameState } from "../src/index.js";
-import { act, answer, decision, dice, engineWith, give, hand, inParty, leader, party, rollHero, start, type Engine } from "./scenario.js";
+import { act, answer, decision, dice, engineWith, give, hand, inParty, leader, party, passAll, play, rollHero, start, type Engine } from "./scenario.js";
 import { smallSet } from "./cards.js";
 
 describe("playing a hero", () => {
-  it("spends 1 AP and puts the hero straight into the party", () => {
+  it("spends 1 AP and puts the hero into the party once its Challenge Window closes", () => {
     const e = engineWith();
     const before = give(start(e, { freeRollOnHeroPlay: false }), "p1", "hero_bard#0");
     expect(e.getLegalActions(before, "p1")).toContainEqual({ type: "PLAY_HERO", player: "p1", card: "hero_bard#0" });
 
-    const r = act(e, before, { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" });
+    const r = play(e, before, { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" });
     expect(r.state.actionPoints).toBe(2);
     expect(hand(r.state, "p1")).not.toContain("hero_bard#0");
     expect(party(r.state, "p1")).toEqual([{ instanceId: "hero_bard#0", equippedItem: null, rolledThisTurn: false }]);
     expect(r.state.phase).toEqual({ kind: "action" });
     expect(r.state.pendingDecision).toBeNull();
-    expect(r.events).toEqual([{ type: "HERO_PLAYED", player: "p1", card: { id: "hero_bard#0", def: "hero_bard" } }]);
+    expect(r.events).toEqual([
+      { type: "CHALLENGE_WINDOW_OPENED", player: "p1", card: { id: "hero_bard#0", def: "hero_bard" } },
+      { type: "HERO_PLAYED", player: "p1", card: { id: "hero_bard#0", def: "hero_bard" } },
+    ]);
   });
 
   it("offers only heroes in the player's own hand", () => {
@@ -33,7 +36,7 @@ describe("playing a hero", () => {
 describe("the free roll after playing a hero", () => {
   it("asks a \"you may\" Decision with Decline first", () => {
     const e = engineWith();
-    const r = act(e, give(start(e), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" });
+    const r = play(e, give(start(e), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" });
     expect(r.state.phase).toEqual({ kind: "resolving" });
     const d = decision(r.state);
     expect(d).toMatchObject({ player: "p1", kind: "confirmOptional", prompt: "Roll for bard hero's effect?", discard: false });
@@ -46,7 +49,7 @@ describe("the free roll after playing a hero", () => {
 
   it("declining leaves the hero's roll for later in the turn", () => {
     const e = engineWith();
-    const played = act(e, give(start(e), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
+    const played = play(e, give(start(e), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
     const r = answer(e, played, "decline");
     expect(r.state.phase).toEqual({ kind: "action" });
     expect(r.state.actionPoints).toBe(2);
@@ -56,7 +59,7 @@ describe("the free roll after playing a hero", () => {
 
   it("taking it rolls for free and uses up the hero's roll for the turn", () => {
     const e = engineWith();
-    const played = act(e, give(start(e), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
+    const played = play(e, give(start(e), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
     const before = hand(played, "p1").length;
     const r = answer(e, dice(played, 4, 3), "accept");
     expect(r.events[0]).toEqual({
@@ -80,7 +83,7 @@ describe("the free roll after playing a hero", () => {
 
   it("isn't offered with freeRollOnHeroPlay off", () => {
     const e = engineWith();
-    const r = act(e, give(start(e, { freeRollOnHeroPlay: false }), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" });
+    const r = play(e, give(start(e, { freeRollOnHeroPlay: false }), "p1", "hero_bard#0"), { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" });
     expect(r.state.pendingDecision).toBeNull();
   });
 
@@ -88,7 +91,7 @@ describe("the free roll after playing a hero", () => {
     const e = engineWith();
     const state = give(start(e), "p1", "hero_bard#0");
     state.actionPoints = 1;
-    const played = act(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
+    const played = play(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
     expect(played.actionPoints).toBe(0);
     expect(e.getActivePlayer(played)).toBe("p1");
     const r = answer(e, played, "decline");
@@ -328,9 +331,9 @@ describe("the class win", () => {
 
   it("wins the moment the party, Party Leader included, has 6 distinct classes", () => {
     const e = engineWith();
-    const r = act(e, oneAway(e), { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" });
-    expect(r.events.map((ev) => ev.type)).toEqual(["HERO_PLAYED", "GAME_WON"]);
-    expect(r.events[1]).toEqual({ type: "GAME_WON", player: "p1", reason: "classes" });
+    const r = play(e, oneAway(e), { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" });
+    expect(r.events.map((ev) => ev.type)).toEqual(["CHALLENGE_WINDOW_OPENED", "HERO_PLAYED", "GAME_WON"]);
+    expect(r.events[2]).toEqual({ type: "GAME_WON", player: "p1", reason: "classes" });
     expect(r.state).toMatchObject({ winner: "p1", winReason: "classes", phase: { kind: "gameOver" }, pendingDecision: null, stack: [] });
     for (const p of ["p1", "p2", "p3"]) expect(e.getLegalActions(r.state, p)).toEqual([]);
     expect(e.getPlayerView(r.state, "p2")).toMatchObject({ winner: "p1", winReason: "classes" });
@@ -341,9 +344,9 @@ describe("the class win", () => {
     const e = engineWith();
     const state = oneAway(e);
     give(state, "p1", "hero_bard#0", "hero_fighter#1");
-    let s = act(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
+    let s = play(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_bard#0" }).state;
     s = answer(e, s, "decline").state;
-    s = act(e, s, { type: "PLAY_HERO", player: "p1", card: "hero_fighter#1" }).state;
+    s = play(e, s, { type: "PLAY_HERO", player: "p1", card: "hero_fighter#1" }).state;
     s = answer(e, s, "decline").state;
     expect(s.winner).toBeNull();
     expect(party(s, "p1")).toHaveLength(6);
@@ -352,13 +355,13 @@ describe("the class win", () => {
   it("follows classesToWin", () => {
     const e = engineWith();
     const state = leader(give(start(e, { classesToWin: 2 }), "p1", "hero_wizard#0"), "p1", "bard");
-    const r = act(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" });
+    const r = play(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" });
     expect(r.state.winner).toBe("p1");
   });
 
   it("with winCheckTiming endOfAction, waits for the action to finish resolving", () => {
     const e = engineWith();
-    const played = act(e, oneAway(e, { winCheckTiming: "endOfAction" }), { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" });
+    const played = play(e, oneAway(e, { winCheckTiming: "endOfAction" }), { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" });
     expect(played.state.winner).toBeNull();
     expect(decision(played.state).kind).toBe("confirmOptional");
     const r = answer(e, dice(played.state, 4, 3), "accept");
@@ -377,22 +380,23 @@ describe("a scenario to a class win", () => {
     state.rng.forcedDice = [1, 1];
 
     const run = (actions: ((s: GameState) => Action)[]) => {
-      for (const next of actions) state = act(e, state, next(state)).state;
+      // Nobody holds a Challenge, so each card play's window closes with everyone passing.
+      for (const next of actions) state = passAll(e, act(e, state, next(state)).state).state;
     };
-    const play = (card: string) => () => ({ type: "PLAY_HERO", player: "p1", card }) as Action;
+    const hero = (card: string) => () => ({ type: "PLAY_HERO", player: "p1", card }) as Action;
     const reply = (id: string) => (s: GameState) => ({ type: "RESOLVE_DECISION", player: "p1", decisionId: decision(s).id, answer: { selected: [id] } }) as Action;
     const end = (player: string) => () => ({ type: "END_TURN", player }) as Action;
 
-    run([play("hero_bard#0"), reply("accept"), play("hero_fighter#0"), reply("decline")]);
+    run([hero("hero_bard#0"), reply("accept"), hero("hero_fighter#0"), reply("decline")]);
     expect(party(state, "p1").map((h) => h.rolledThisTurn)).toEqual([true, false]);
-    run([play("hero_guardian#0"), reply("decline")]);
+    run([hero("hero_guardian#0"), reply("decline")]);
     // Three AP spent: the turn has passed, and p1's heroes have their rolls back for next time.
     expect(e.getActivePlayer(state)).toBe("p2");
     expect(party(state, "p1").map((h) => h.rolledThisTurn)).toEqual([false, false, false]);
     run([end("p2"), end("p3")]);
-    run([play("hero_ranger#0"), reply("decline")]);
+    run([hero("hero_ranger#0"), reply("decline")]);
     expect(state.winner).toBeNull();
-    const last = act(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_thief#0" });
+    const last = play(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_thief#0" });
     expect(last.state).toMatchObject({ winner: "p1", winReason: "classes", phase: { kind: "gameOver" } });
     expect(last.events.at(-1)).toEqual({ type: "GAME_WON", player: "p1", reason: "classes" });
   });

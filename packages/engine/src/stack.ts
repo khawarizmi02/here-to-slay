@@ -1,8 +1,10 @@
+import { challengeDuelStep, challengeRolled, openChallengeWindow } from "./challenges.js";
 import type { Effect, HeroFilter, PassiveAbility, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
 import { heroDef, startHeroRoll } from "./heroes.js";
 import { monsterAttackOutcome, monsterDef, pushPenalty, slayMonster } from "./monsters.js";
 import { discardHero, heroesMatching, stealHero, type OwnedHero } from "./party.js";
+import { cardPlayStep } from "./plays.js";
 import { passiveSourcesAt, rollBonus, type HookContext } from "./passives.js";
 import { fromPlayer, playerState } from "./players.js";
 import { nextInt, rollD6 } from "./rng.js";
@@ -27,14 +29,14 @@ import {
 /**
  * The resumable effect interpreter (TECHNICAL_DESIGN.md §6.5 Option A).
  * Steps the frame on top of the stack until the stack is empty, a Decision
- * is pending or the game is over. Each step is atomic: under
+ * is pending, a Challenge Window waits on responses, or the game is over. Each step is atomic: under
  * `winCheckTiming: "immediate"` the game can end after any of them.
  * While anything is on the stack the phase is "resolving".
  */
 export function runStack(defs: CardIndex, state: GameState, events: GameEvent[]): void {
   // Whatever pushed onto the stack may itself have changed the state, as a hero entering a party does.
   if (state.config.winCheckTiming === "immediate") checkWin(defs, state, events);
-  while (state.stack.length > 0 && state.pendingDecision === null && state.phase.kind !== "gameOver") {
+  while (state.stack.length > 0 && state.pendingDecision === null && state.phase.kind !== "gameOver" && openChallengeWindow(state) === undefined) {
     if (state.phase.kind === "action") state.phase = { kind: "resolving" };
     step(defs, state, events);
     if (state.config.winCheckTiming === "immediate") checkWin(defs, state, events);
@@ -63,6 +65,14 @@ function step(defs: CardIndex, state: GameState, events: GameEvent[]): void {
       return magic(defs, state, frame, events);
     case "turn":
       return turnStep(defs, state, frame, events);
+    case "cardPlay":
+      return cardPlayStep(defs, state, frame, events);
+    case "challengeWindow":
+      // Stepped only once nobody is waited on: it closes.
+      state.stack.pop();
+      return;
+    case "challengeDuel":
+      return challengeDuelStep(state, frame, events);
   }
 }
 
@@ -137,8 +147,8 @@ function freeRoll(defs: CardIndex, state: GameState, frame: FreeRollFrame, event
 /**
  * Runs the roller's beforeRoll passives, then rolls 2d6 and adds passive
  * bonuses, then settles the roll: a hero roll's success puts the hero's
- * effect on the stack, and a monster attack slays, applies the penalty or
- * does nothing. The roller's afterRoll passives go on top, so they run first.
+ * effect on the stack, a monster attack slays, applies the penalty or
+ * does nothing, and a Challenge roll's total goes to its duel. The roller's afterRoll passives go on top, so they run first.
  */
 function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameEvent[]): void {
   // A monster attack is the whole party's roll, so every item on it counts.
@@ -146,6 +156,7 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
     frame.rollKind === "heroEffect"
       ? { rollKind: frame.rollKind, heroClass: heroClass(defs, state, frame.hero), hero: frame.hero }
       : { rollKind: frame.rollKind };
+  // A Challenge roll counts the roller's leader and monster bonuses (§7.3: any roll does), but no item's (§5.4).
   if (frame.stage === "beforeRoll") {
     frame.stage = "dice";
     pushTriggers(defs, state, frame.roller, "beforeRoll", ctx);
@@ -164,6 +175,9 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
     const succeeded = total >= def.rollRequirement;
     events.push({ ...rolled, rollKind: "heroEffect", hero: { id: frame.hero, def: def.id }, succeeded });
     if (succeeded) state.stack.push(effectFrame(def.effect, frame.roller, frame.roller, frame.hero));
+  } else if (frame.rollKind === "challenge") {
+    events.push({ ...rolled, rollKind: "challenge", side: frame.side, target: { id: frame.target, def: state.cards[frame.target]! } });
+    challengeRolled(state, frame.side, total);
   } else {
     const def = monsterDef(defs, state, frame.monster)!;
     const outcome = monsterAttackOutcome(def, total);

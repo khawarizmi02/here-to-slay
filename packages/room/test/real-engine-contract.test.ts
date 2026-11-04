@@ -32,6 +32,11 @@ function faceUpInEvents(events: readonly ProtocolEvent[], viewer: PlayerId | "sp
       case "HERO_DESTROYED":
       case "HERO_SACRIFICED":
         return [e.hero.id, ...(e.item ? [e.item.id] : [])];
+      // A Challenge card, and a card Challenged away, are face up as they go to the discard pile.
+      case "CHALLENGE_PLAYED":
+        return [e.card.id, e.target.id];
+      case "CHALLENGE_RESOLVED":
+        return [e.target.id];
       case "CARD_PULLED":
         return e.from === viewer && e.card ? [e.card.id] : [];
       default:
@@ -40,13 +45,11 @@ function faceUpInEvents(events: readonly ProtocolEvent[], viewer: PlayerId | "sp
   });
 }
 
-// Response Windows arrive in M3 (#47, #48).
-describeRoomEngineContract<GameState>("real engine", { engine, opensResponseWindows: false, hiddenCards, faceUpInEvents });
+describeRoomEngineContract<GameState>("real engine", { engine, hiddenCards, faceUpInEvents });
 
 describeRoomEngineContract<GameState>("real engine, leader draft", {
   engine,
   config: { leaderSelection: "draft" },
-  opensResponseWindows: false,
   hiddenCards,
   faceUpInEvents,
 });

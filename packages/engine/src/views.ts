@@ -1,4 +1,5 @@
 import { clone } from "./clone.js";
+import { awaitingResponses, openChallengeWindow } from "./challenges.js";
 import { getLegalActions } from "./rules.js";
 import type { CardIndex, CardInstanceId, CardView, GameEvent, GameState, PlayerId, PlayerView } from "./types.js";
 
@@ -7,6 +8,13 @@ function pendingDecisionFor(state: GameState, viewer: PlayerId | "spectator"): P
   const decision = state.pendingDecision;
   if (decision === null) return null;
   return decision.player === viewer ? clone(decision) : { player: decision.player };
+}
+
+/** The open Response Window, which is public: who it waits on, and the card a Challenge Window is about. */
+function responseWindowView(state: GameState): PlayerView["responseWindow"] {
+  const window = openChallengeWindow(state);
+  if (window === undefined) return null;
+  return { kind: "challenge", awaiting: awaitingResponses(state, window), card: { id: window.card, def: state.cards[window.card]! } };
 }
 
 /** One player's redacted view (TECHNICAL_DESIGN.md §9). Shares nothing with `state`. */
@@ -38,7 +46,7 @@ export function getPlayerView(defs: CardIndex, state: GameState, viewer: PlayerI
     monsterDeckCount: state.monsterDeck.length,
     discardPile: state.discardPile.map(card),
     activeMonsters: state.activeMonsters.map(card),
-    responseWindow: null,
+    responseWindow: responseWindowView(state),
     pendingDecision: pendingDecisionFor(state, viewer),
     firstPlayerRolls: clone(state.firstPlayerRolls),
     winner: state.winner,

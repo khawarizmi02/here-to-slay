@@ -26,8 +26,12 @@ function cardsInZones(state: GameState): CardInstanceId[] {
       if (hero.equippedItem !== null) cards.push(hero.equippedItem);
     }
   }
-  // A Magic card is in no zone while it resolves: its frame holds it.
-  for (const frame of state.stack) if (frame.kind === "magic") cards.push(frame.card);
+  // A Magic card is in no zone while it resolves, nor is a card in limbo behind its Challenge Window: their frames hold them.
+  for (const frame of state.stack) {
+    if (frame.kind === "magic") cards.push(frame.card);
+    // A successful Challenge has already sent the card to the discard pile.
+    if (frame.kind === "cardPlay" && !frame.challenged) cards.push(frame.card);
+  }
   return cards;
 }
 
@@ -107,11 +111,12 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
 
       if (state.phase.kind === "gameOver") return { seed, actions, state, failure: null };
       if (actions >= cap) return fail(`no winner within ${cap} actions`);
-      // Without Response Windows (M3), one player at a time has something to do.
+      // Outside a Response Window, one player at a time has something to do; in one, everyone it waits on may respond.
       const legal = [...results.keys()];
       const actors = new Set(legal.map((a) => a.player));
       if (actors.size === 0) return fail("nobody has a legal action");
-      if (actors.size > 1) return fail(`${[...actors].join(", ")} all have legal actions at once`);
+      const responding = [...actors].every((p) => legal.some((a) => a.player === p && a.type === "PASS"));
+      if (actors.size > 1 && !responding) return fail(`${[...actors].join(", ")} all have legal actions at once`);
       [last, rng] = fuzzAction(legal, rng);
       state = results.get(last)!.state;
     }
@@ -147,6 +152,9 @@ export function fuzzConfig(i: number): ConfigPatch {
     rollFlagFollowsHero: pick([true, false]),
     itemFollowsStolenHero: pick([true, false]),
     leaderCountsForRequirements: pick([true, false]),
+    // More than one Challenge per play is left to the unit tests: random play then Challenges so much that some games crawl past the action cap.
+    maxChallengesPerPlay: pick([1, 0]),
+    challengeTieWinner: pick(["challenger", "challenged"] as const),
   };
 }
 
