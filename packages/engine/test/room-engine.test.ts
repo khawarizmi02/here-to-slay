@@ -52,11 +52,6 @@ describe("createGame config", () => {
     expect(() => start({ firstPlayerMethod: "firstSeat", actionPointsPerTurn: 2.5 })).toThrow(/"actionPointsPerTurn"/);
   });
 
-  it("refuses setup modes that aren't built yet, by name", () => {
-    expect(() => start({})).toThrow(/firstPlayerMethod "roll"/);
-    expect(() => start({ firstPlayerMethod: "random", leaderSelection: "draft" })).toThrow(/leaderSelection "draft"/);
-  });
-
   it("refuses too few or too many players, and duplicate ids", () => {
     const config = { firstPlayerMethod: "firstSeat" };
     expect(() => engine.createGame({ players: players(1), seed: "s", config })).toThrow(/2–6 players/);
@@ -99,7 +94,7 @@ describe("player views", () => {
 
   it("shows public information to everyone", () => {
     const view = engine.getPlayerView(state, "p1");
-    expect(view.players.map((p) => p.leader.id)).toEqual(state.players.map((p) => p.leader));
+    expect(view.players.map((p) => p.leader?.id)).toEqual(state.players.map((p) => p.leader));
     expect(view.activeMonsters.map((m) => m.id)).toEqual(state.activeMonsters);
     expect(view.mainDeckCount).toBe(state.mainDeck.length);
     expect(view.monsterDeckCount).toBe(state.monsterDeck.length);

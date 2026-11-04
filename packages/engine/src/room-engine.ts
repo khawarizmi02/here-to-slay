@@ -2,7 +2,7 @@ import type { CardDef } from "@here-to-slay/cards";
 import type { Action, ConfigPatch, PlayerId } from "@here-to-slay/protocol";
 import { clone } from "./clone.js";
 import { hash128 } from "./rng.js";
-import { applyAction, getLegalActions } from "./rules.js";
+import { applyAction, getLegalActions, isDiscardDecision } from "./rules.js";
 import { createGame } from "./setup.js";
 import type { ApplyResult, GameEvent, GameState, PlayerView } from "./types.js";
 import { getPlayerEvents, getPlayerView } from "./views.js";
@@ -19,7 +19,9 @@ export interface BoundEngine {
   createGame(opts: { players: { id: PlayerId; name: string; isBot: boolean }[]; seed: string; config: ConfigPatch }): GameState;
   applyAction(state: GameState, action: Action): ApplyResult;
   getLegalActions(state: GameState, player: PlayerId): Action[];
+  /** The current drafter during a leader draft; after setup, the player whose turn it is. */
   getActivePlayer(state: GameState): PlayerId;
+  isDiscardDecision(state: GameState, player: PlayerId): boolean;
   getPlayerView(state: GameState, player: PlayerId | "spectator"): PlayerView;
   getPlayerEvents(events: readonly GameEvent[], player: PlayerId | "spectator"): GameEvent[];
 }
@@ -32,6 +34,7 @@ export function createRoomEngine(cardDefs: readonly CardDef[]): BoundEngine {
     applyAction,
     getLegalActions,
     getActivePlayer: (state) => state.activePlayer,
+    isDiscardDecision,
     getPlayerView,
     getPlayerEvents,
   };

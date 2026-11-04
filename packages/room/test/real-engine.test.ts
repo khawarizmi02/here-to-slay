@@ -9,7 +9,7 @@ import { Client, FakeClock, FakeTimers, seededRandom } from "./harness.js";
  * the toy engine; these check the two fit together).
  */
 
-function realRoom(extra: string[]) {
+function realRoom(extra: string[], bots = 0) {
   const clock = new FakeClock();
   const room = new Room<GameState>({
     engine: createRoomEngine(placeholderCardDefs),
@@ -20,11 +20,12 @@ function realRoom(extra: string[]) {
   });
   const host = new Client(room.hostConnection);
   for (const name of extra) host.send({ t: "addLocalSeat", name });
+  for (let i = 0; i < bots; i++) host.send({ t: "addBot", difficulty: "easy" });
   const lobby = host.last("lobby");
   const hostSeat = lobby.you[0]!;
   const clients = new Map<string, Client>([[hostSeat, host]]);
   for (const seat of lobby.seats) {
-    if (seat.id !== hostSeat) clients.set(seat.id, new Client(room.connectLocalSeat(seat.id)));
+    if (seat.id !== hostSeat && seat.kind === "local") clients.set(seat.id, new Client(room.connectLocalSeat(seat.id)));
   }
   return { host, clients, seatIds: lobby.seats.map((s) => s.id) };
 }
@@ -58,6 +59,35 @@ describe("a Room on the real engine", () => {
         for (const card of hand) expect(json, `${seat} was shown ${other}'s ${card}`).not.toContain(JSON.stringify(card));
       }
     }
+  });
+
+  it("completes a leader draft with a local Seat and a bot, then rolls for the first player", () => {
+    const { host, seatIds } = realRoom([], 1);
+    const [alice, bot] = seatIds as [string, string];
+    host.send({ t: "setConfig", config: { leaderSelection: "draft" } });
+    host.send({ t: "startGame" });
+
+    // Seat order: the Host's Seat drafts first, and the bot waits its turn.
+    let view = viewOf(host);
+    expect(view.phase).toEqual({ kind: "setup", step: "leaderSelect" });
+    expect(view.activePlayer).toBe(alice);
+    const decision = view.pendingDecision;
+    if (!decision || !("options" in decision)) throw new Error("Alice was not asked to pick a leader");
+    expect(decision.kind).toBe("chooseLeader");
+    const choice = decision.options[1]!.id;
+    host.send({ t: "action", seat: alice, action: { type: "RESOLVE_DECISION", player: alice, decisionId: decision.id, answer: { selected: [choice] } }, clientSeq: 0 });
+
+    // The bot picks from what is left, then everyone rolls and the game starts.
+    view = viewOf(host);
+    const leaders = view.players.map((p) => p.leader?.id);
+    expect(leaders[0]).toBe(choice);
+    expect(leaders[1]).toBeDefined();
+    expect(leaders[1]).not.toBe(choice);
+    expect(view.phase).toEqual({ kind: "action" });
+    expect(view.pendingDecision).toBeNull();
+    expect(view.firstPlayerRolls).not.toBeNull();
+    expect([alice, bot]).toContain(view.activePlayer);
+    expect(view.turnOrder[0]).toBe(view.activePlayer);
   });
 
   it("stays in the lobby, naming the key, when the engine rejects the config", () => {
