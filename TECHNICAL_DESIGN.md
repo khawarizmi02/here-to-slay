@@ -894,6 +894,8 @@ type RoomMsg =
   | { t: "update"; version: number; events: GameEvent[]; view: PlayerView }
   | { t: "actionRejected"; clientSeq: number; error: string }
   | { t: "hostAway" }                // the relay sends this when the Host disconnects
+  | { t: "hostBack" }                // ...and this when it returns; a fresh `update` follows
+  | { t: "roomClosed" }              // ...and this if the Host stayed away 10 minutes
   | { t: "error"; message: string }
   | { t: "passDevice"; seat: SeatId; name: string }      // local Seat asked to respond (§7.4)
   | { t: "respond"; seat: SeatId; actions: Action[] }    // its options, once it confirms
@@ -951,7 +953,7 @@ Rules:
 
 - **Host refresh:** after every applied action, the Room saves `{ roomCode, seed, config, seats, cardDefsVersion, actions[] }` to IndexedDB. On reload, the Host reconnects to the relay with `hostToken`, rebuilds the state by replaying the log (Section 8.3), and sends every Seat a fresh `update`. Any open deadlines restart from their full duration.
 - **Host leaves for good:** the Room ends. The game never moves to another device, because that device would need the full state.
-- **Friend reconnects:** the friend's `seatToken` from localStorage reclaims their Seat, and the Room sends them a fresh `update`. A disconnected friend's Seat is held for 2 minutes. After that, a bot takes over the Seat, and the friend can take it back on their turn boundary when they return.
+- **Friend reconnects:** the friend's `seatToken` from localStorage reclaims their Seat, and the Room sends them a fresh `update`. A disconnected friend's Seat is held for 2 minutes. After that, a bot takes over the Seat, and a friend who returns takes it back at the next turn boundary (when the active player changes), never mid-turn. Until then they see updates, but their actions are rejected. Holds are not saved: after a Host refresh, every absent friend's hold restarts from the full 2 minutes.
 - Optionally, when a game ends, the Host can download the replay as a JSON file.
 
 ### 10.8 Deployment

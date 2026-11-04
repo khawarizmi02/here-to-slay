@@ -101,16 +101,21 @@ describe("joining over the relay", () => {
     const bob = await join(relay, roomCode, "Bob");
     relay.closeRoom(roomCode);
     await settle();
-    expect(bob.client.last("error").message).toBe(`Room ${roomCode} has closed: the Host was away too long`);
+    expect(bob.client.of("roomClosed")).toHaveLength(1);
+    expect(bob.client.of("error")).toHaveLength(0);
     expect(bob.connection.closed).toBe(true);
   });
 
-  it("tells friends when the Host is away", async () => {
+  it("tells friends when the Host is away, and when it is back", async () => {
     const { relay, roomCode } = hostedRoom();
     const bob = await join(relay, roomCode, "Bob");
     relay.dropHost(roomCode);
     await settle();
     expect(bob.client.of("hostAway")).toHaveLength(1);
+    expect(bob.client.of("hostBack")).toHaveLength(0);
+    relay.connectHost(roomCode, `host-token-${roomCode}`);
+    await settle();
+    expect(bob.client.of("hostBack")).toHaveLength(1);
   });
 
   it("refuses to seat a friend once the game has started, or when the Room is full", async () => {
