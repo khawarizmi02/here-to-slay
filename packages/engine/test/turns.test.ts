@@ -10,6 +10,11 @@ function start(config: ConfigPatch = {}, count = 3): GameState {
   return engine.createGame({ players: players(count), seed: "turns", config: { firstPlayerMethod: "firstSeat", ...config } });
 }
 
+/** Legal actions other than playing and rolling heroes, which heroes.test.ts covers. */
+function nonHero(actions: Action[]): Action[] {
+  return actions.filter((a) => a.type !== "PLAY_HERO" && a.type !== "ROLL_HERO_EFFECT");
+}
+
 function act(state: GameState, action: Action): GameState {
   const r = engine.applyAction(state, action);
   expect(r.ok, r.error).toBe(true);
@@ -37,7 +42,7 @@ describe("action points", () => {
 
   it("offers turn actions only to the active player", () => {
     const state = start();
-    expect(engine.getLegalActions(state, "p1")).toEqual([
+    expect(nonHero(engine.getLegalActions(state, "p1"))).toEqual([
       { type: "DRAW_CARD", player: "p1" },
       { type: "DISCARD_AND_REDRAW", player: "p1" },
       { type: "END_TURN", player: "p1" },
@@ -88,7 +93,7 @@ describe("passing the turn", () => {
 
   it("offers only actions the player can still pay for", () => {
     const state = act(start(), { type: "DRAW_CARD", player: "p1" });
-    expect(engine.getLegalActions(state, "p1").map((a) => a.type)).toEqual(["DRAW_CARD", "END_TURN"]);
+    expect(nonHero(engine.getLegalActions(state, "p1")).map((a) => a.type)).toEqual(["DRAW_CARD", "END_TURN"]);
     expect(engine.applyAction(state, { type: "DISCARD_AND_REDRAW", player: "p1" }).ok).toBe(false);
   });
 
@@ -257,12 +262,12 @@ describe("reshuffling the discard pile", () => {
   });
 
   it("offers no DRAW_CARD when there is nothing to draw", () => {
-    expect(engine.getLegalActions(thinDeck(start({ reshuffleDiscardWhenDeckEmpty: false }), 0), "p1").map((a) => a.type)).toEqual([
+    expect(nonHero(engine.getLegalActions(thinDeck(start({ reshuffleDiscardWhenDeckEmpty: false }), 0), "p1")).map((a) => a.type)).toEqual([
       "DISCARD_AND_REDRAW",
       "END_TURN",
     ]);
     const empty = { ...thinDeck(start(), 0), discardPile: [] };
-    expect(engine.getLegalActions(empty, "p1").map((a) => a.type)).toEqual(["DISCARD_AND_REDRAW", "END_TURN"]);
+    expect(nonHero(engine.getLegalActions(empty, "p1")).map((a) => a.type)).toEqual(["DISCARD_AND_REDRAW", "END_TURN"]);
   });
 });
 
@@ -319,7 +324,7 @@ describe("start-of-turn and end-of-turn hooks", () => {
     const dear = leadersWith({ hook: "modifyActionCost", condition: { action: "DRAW_CARD" }, value: 1 });
     let state = act2(dear, begin(dear), { type: "DRAW_CARD", player: "p1" });
     expect(state.actionPoints).toBe(1);
-    expect(dear.getLegalActions(state, "p1").map((a) => a.type)).toEqual(["END_TURN"]);
+    expect(nonHero(dear.getLegalActions(state, "p1")).map((a) => a.type)).toEqual(["END_TURN"]);
 
     const other = leadersWith({ hook: "modifyActionCost", condition: { action: "ROLL_HERO_EFFECT" }, value: 1 });
     state = act2(other, begin(other), { type: "DRAW_CARD", player: "p1" });
@@ -327,7 +332,7 @@ describe("start-of-turn and end-of-turn hooks", () => {
 
     const free = leadersWith({ hook: "modifyActionCost", condition: { action: "DISCARD_AND_REDRAW" }, value: -1 });
     state = act2(free, begin(free), { type: "DRAW_CARD", player: "p1" });
-    expect(free.getLegalActions(state, "p1").map((a) => a.type)).toEqual(["DRAW_CARD", "DISCARD_AND_REDRAW", "END_TURN"]);
+    expect(nonHero(free.getLegalActions(state, "p1")).map((a) => a.type)).toEqual(["DRAW_CARD", "DISCARD_AND_REDRAW", "END_TURN"]);
   });
 
   function act2(e: ReturnType<typeof createRoomEngine>, state: GameState, action: Action): GameState {

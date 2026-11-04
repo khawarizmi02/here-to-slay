@@ -1,5 +1,5 @@
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
-import { playerState } from "./players.js";
+import { fromPlayer, playerState } from "./players.js";
 import { handLimit, passivesAt } from "./passives.js";
 import { shuffle } from "./rng.js";
 import type { CardIndex, GameEvent, GameState, PlayerId } from "./types.js";
@@ -59,8 +59,9 @@ export function startTurn(defs: CardIndex, state: GameState, player: PlayerId, e
 }
 
 /**
- * Runs `player`'s passives at a trigger hook. Until the effect interpreter
- * exists (#42), the only effect a passive can have here is a draw.
+ * Runs `player`'s passives at a trigger hook. The only effect a passive can
+ * have here is a draw for now: a trigger that could pause on a Decision
+ * would have to put the rest of the turn's start or end on the stack too.
  */
 function runTriggers(defs: CardIndex, state: GameState, player: PlayerId, hook: "onTurnStart" | "onTurnEnd", events: GameEvent[]): void {
   for (const passive of passivesAt(defs, state, player, hook)) {
@@ -120,7 +121,7 @@ function continueTurnEnd(defs: CardIndex, state: GameState, events: GameEvent[])
   }
 
   events.push({ type: "TURN_ENDED", player });
-  const next = state.turnOrder[(state.turnOrder.indexOf(player) + 1) % state.turnOrder.length]!;
+  const next = fromPlayer(state, player)[1 % state.turnOrder.length]!;
   state.turnNumber++;
   startTurn(defs, state, next, events);
 }
