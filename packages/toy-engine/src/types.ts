@@ -49,9 +49,8 @@ export interface ToyPendingDecision {
   player: PlayerId;
   kind: "chooseOption";
   prompt: string;
+  /** Answered with exactly one option id: every Decision is one pick. */
   options: ToyDecisionOption[];
-  min: number;
-  max: number;
 }
 
 export interface ToyResponseWindow {
@@ -119,6 +118,8 @@ export interface PlayerView {
   /** Full if the decision is the viewer's; otherwise only who is deciding. */
   pendingDecision: ToyPendingDecision | { player: PlayerId } | null;
   winner: PlayerId | null;
+  /** Everything the viewer may do now (TECHNICAL_DESIGN.md §9); empty for a spectator. */
+  legalActions: Action[];
 }
 
 export interface CreateGameOptions {
