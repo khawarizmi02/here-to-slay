@@ -8,6 +8,9 @@
       "path": "packages/cards"
     },
     {
+      "path": "packages/engine"
+    },
+    {
       "path": "packages/toy-engine"
     },
     {

@@ -336,6 +336,7 @@ export interface GameState {
   discardPile: CardInstanceId[];
   monsterDeck: CardInstanceId[];
   activeMonsters: CardInstanceId[];
+  leaderPool: CardInstanceId[];          // Party Leaders nobody has; never shown
 
   phase: Phase;                          // Section 6.3
   stack: StackFrame[];                   // Section 7
