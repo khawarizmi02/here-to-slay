@@ -157,7 +157,8 @@ Additional rules:
 - Each hero can attempt its roll **once per turn**, whether or not it succeeded. Track this with `hero.rolledThisTurn`.
 - A hero that is stolen or moved keeps its per-turn roll flag for that turn. ⚙️ `rollFlagFollowsHero` (default `true`)
 - **AP is spent when an action is declared.** If the action is Challenged successfully, the AP is not refunded.
-- When a monster is slain, it moves to the player's slain pile, and a new monster is revealed from the monster deck.
+- When a monster is slain, it moves to the player's slain pile, and a new monster is revealed from the monster deck straight away.
+- If the monster deck is empty, the slot stays empty. A class win is still possible.
 
 ### 3.6 Modifier cards
 - Any player, including the roller, may play Modifier cards on **any roll**: hero effects, monster attacks, challenge rolls, and the first-player roll if that flag is enabled.
@@ -1155,15 +1156,12 @@ Defaults are in place, but the owner should check these against the printed rule
 2. **Free roll on hero play:** does playing a Hero let you immediately roll its effect within the same action? (`freeRollOnHeroPlay`)
 3. **Start-of-turn draw:** is there a free draw at the start of each turn? (`drawAtStartOfTurn`)
 4. **Leader for monster requirements:** does the Party Leader count toward requirements such as "2 heroes" or "1 Fighter"? (`leaderCountsForRequirements`)
-5. **AP refund:** is AP lost when a played card is successfully challenged? (Assumed lost.)
-6. **Stolen hero's roll flag:** can a stolen hero be rolled again by its new owner in the same turn? (`rollFlagFollowsHero`)
-7. **Stolen hero's item:** does the item move with a stolen hero? (`itemFollowsStolenHero`)
-8. **Modifier timing:** can modifiers be played after other modifiers in any order until everyone passes? (Assumed yes.)
-9. **Monster replacement timing:** is a new monster revealed immediately after a slay, or at end of turn? (Assumed immediately.)
-10. **Empty monster deck:** what happens? (Assumed: the slot stays empty.)
-11. **Mid-effect win:** does the game end the instant a win condition is met, even on another player's turn? (`winCheckTiming`)
-12. **Hand-limit discard:** chosen by the player? (Assumed yes.)
-13. **Modifiers in a Challenge:** do both players roll first, with one Modifier Window in which any player may modify either roll? (Assumed yes. `PLAY_MODIFIER` names its target roll.)
+5. **Stolen hero's roll flag:** can a stolen hero be rolled again by its new owner in the same turn? (`rollFlagFollowsHero`)
+6. **Stolen hero's item:** does the item move with a stolen hero? (`itemFollowsStolenHero`)
+7. **Modifier timing:** can modifiers be played after other modifiers in any order until everyone passes? (Assumed yes.)
+8. **Mid-effect win:** does the game end the instant a win condition is met, even on another player's turn? (`winCheckTiming`)
+9. **Hand-limit discard:** chosen by the player? (Assumed yes.)
+10. **Modifiers in a Challenge:** do both players roll first, with one Modifier Window in which any player may modify either roll? (Assumed yes. `PLAY_MODIFIER` names its target roll.)
 
 When a rule is confirmed, update the default value in `config/defaults.ts` and remove it from this list.
 
