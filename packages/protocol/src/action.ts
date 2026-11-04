@@ -2,12 +2,12 @@ import { z } from "zod";
 import { CardInstanceIdSchema, PlayerIdSchema } from "./common.js";
 
 /**
- * The answer to a PendingDecision: the ids of the chosen options.
- * The engine's DecisionOption/DecisionAnswer types are not built yet
- * (milestones M1–M3); this shape is provisional and shared with the toy engine.
+ * The answer to a PendingDecision: the id of the one chosen option. Every
+ * Decision is exactly one pick (GLOSSARY.md); choosing several cards is a
+ * chain of Decisions, and a "you may" Decision offers an explicit Decline option.
  */
 export const DecisionAnswerSchema = z.strictObject({
-  selected: z.array(z.string().min(1).max(64)).max(32),
+  selected: z.tuple([z.string().min(1).max(64)]),
 });
 export type DecisionAnswer = z.infer<typeof DecisionAnswerSchema>;
 
@@ -27,7 +27,14 @@ export const ActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("END_TURN"), player }),
   // Responses
   z.strictObject({ type: z.literal("PLAY_CHALLENGE"), player, card }),
-  z.strictObject({ type: z.literal("PLAY_MODIFIER"), player, card, value: z.number().int() }),
+  z.strictObject({
+    type: z.literal("PLAY_MODIFIER"),
+    player,
+    card,
+    value: z.number().int(),
+    /** The roll it modifies. Engines may leave it out when the Modifier Window holds one roll. */
+    roll: z.string().min(1).max(64).optional(),
+  }),
   z.strictObject({ type: z.literal("PASS"), player }),
   // Answers to prompts
   z.strictObject({

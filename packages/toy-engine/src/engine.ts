@@ -240,8 +240,6 @@ function resolveCard(state: GameState, events: GameEvent[]): void {
     kind: "chooseOption",
     prompt: "Make a wish",
     options: WISH_OPTIONS.map((o) => ({ ...o })),
-    min: 1,
-    max: 1,
   };
   state.phase = "decision";
   events.push({ type: "DECISION_OPENED", player: owner.id, decisionId: id });
@@ -298,6 +296,7 @@ export function getPlayerView(state: GameState, playerId: PlayerId | "spectator"
     responseWindow: state.responseWindow,
     pendingDecision: decision === null ? null : decision.player === playerId ? decision : { player: decision.player },
     winner: state.winner,
+    legalActions: me ? getLegalActions(state, me.id) : [],
   });
 }
 

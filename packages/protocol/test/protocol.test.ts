@@ -43,6 +43,7 @@ const validActions: Action[] = [
   { type: "END_TURN", player: "p1" },
   { type: "PLAY_CHALLENGE", player: "p2", card: "challenge_01#0" },
   { type: "PLAY_MODIFIER", player: "p2", card: "mod_01#0", value: -2 },
+  { type: "PLAY_MODIFIER", player: "p2", card: "mod_01#0", value: 2, roll: "r1" },
   { type: "PASS", player: "p2" },
   { type: "RESOLVE_DECISION", player: "p1", decisionId: "d1", answer: { selected: ["opt_a"] } },
 ];
@@ -63,7 +64,12 @@ describe("ActionSchema", () => {
       { type: "PLAY_HERO", player: "p1" },
       { type: "PLAY_HERO", player: "p1", card: 7 },
       { type: "PLAY_MODIFIER", player: "p1", card: "m#0", value: 1.5 },
+      { type: "PLAY_MODIFIER", player: "p1", card: "m#0", value: 1, roll: "" },
       { type: "RESOLVE_DECISION", player: "p1", decisionId: "d1", answer: "opt_a" },
+      // Every Decision is exactly one pick.
+      { type: "RESOLVE_DECISION", player: "p1", decisionId: "d1", answer: { selected: [] } },
+      { type: "RESOLVE_DECISION", player: "p1", decisionId: "d1", answer: { selected: ["opt_a", "opt_b"] } },
+      { type: "RESOLVE_DECISION", player: "p1", decisionId: "d1", answer: { selected: [""] } },
       { type: "DRAW_CARD", player: "p1", extra: true },
       { type: "PASS", player: "" },
     ]);
