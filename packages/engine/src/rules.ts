@@ -1,5 +1,5 @@
 import type { CostedAction } from "@here-to-slay/cards";
-import { clone } from "./clone.js";
+import { cloneState } from "./clone.js";
 import { actionCost } from "./passives.js";
 import { playChallenge } from "./challenges.js";
 import { playModifier, withRoll } from "./modifiers.js";
@@ -65,7 +65,7 @@ export function applyAction(defs: CardIndex, state: GameState, given: Action): A
   const error = rejectionReason(defs, state, action);
   if (error !== undefined) return { ok: false, state, error, events: [] };
 
-  const next = clone(state);
+  const next = cloneState(state);
   const events: GameEvent[] = [];
   if (action.type === "RESOLVE_DECISION") {
     const decision = next.pendingDecision!;
@@ -134,12 +134,24 @@ function rejectionReason(defs: CardIndex, state: GameState, action: Action): str
     return undefined;
   }
   // A turn action or a response is legal exactly when it is listed, card and all.
-  const key = actionKey(action);
-  if (getLegalActions(defs, state, action.player).some((a) => actionKey(a) === key)) return undefined;
+  if (getLegalActions(defs, state, action.player).some((a) => sameAction(a, action))) return undefined;
   return `${action.type} is not a legal action right now`;
 }
 
-/** An action as JSON with its keys sorted, so key order doesn't matter when comparing. */
-function actionKey(action: Action): string {
-  return JSON.stringify(Object.entries(action).sort(([a], [b]) => (a < b ? -1 : 1)));
+/**
+ * Whether two turn actions or responses are the same, field for field,
+ * whatever order their keys are in; a field set to undefined counts as left
+ * out. Their fields are all primitives.
+ */
+function sameAction(a: Action, b: Action): boolean {
+  return covers(a, b) && covers(b, a);
+}
+
+/** Whether every field `b` sets, `a` sets to the same value. */
+function covers(a: Action, b: Action): boolean {
+  for (const key in b) {
+    const v = (b as Record<string, unknown>)[key];
+    if (v !== undefined && (a as Record<string, unknown>)[key] !== v) return false;
+  }
+  return true;
 }

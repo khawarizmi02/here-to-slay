@@ -4,7 +4,8 @@ import type { CardIndex, CardInstanceId, GameState, PlayerId } from "./types.js"
 
 /** The class `hero` counts as (§4.4 `getHeroClass`): its Mask item's class if it wears one, otherwise its own. */
 export function heroClass(defs: CardIndex, state: GameState, hero: CardInstanceId): HeroClass {
-  const item = state.players.flatMap((p) => p.party).find((h) => h.instanceId === hero)?.equippedItem;
+  let item: CardInstanceId | null | undefined;
+  for (const p of state.players) item ??= p.party.find((h) => h.instanceId === hero)?.equippedItem;
   const itemDef = item ? defs.get(state.cards[item]!) : undefined;
   if (itemDef && "maskClass" in itemDef && itemDef.maskClass !== undefined) return itemDef.maskClass;
   const def = defs.get(state.cards[hero]!);
