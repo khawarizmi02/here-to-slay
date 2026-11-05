@@ -21,7 +21,8 @@ export interface SourcedPassive {
  * Every passive `player` has at `hook` (TECHNICAL_DESIGN.md §5.4), with the
  * card it comes from: their Party Leader's, then the items on their heroes in
  * party order, then their slain monsters' rewards in the order they were
- * slain. An item counts for a roll only when its hero is the one rolling.
+ * slain. An item counts for a roll only when its hero is the one rolling, so
+ * never for a Challenge roll, which no hero makes.
  */
 export function passiveSourcesAt(
   defs: CardIndex,
@@ -39,7 +40,7 @@ export function passiveSourcesAt(
     if (passive?.hook === hook && matches(passive, ctx)) found.push({ passive, source });
   };
   add(p.leader);
-  for (const hero of p.party) if (ctx.hero === undefined || ctx.hero === hero.instanceId) add(hero.equippedItem);
+  if (ctx.rollKind !== "challenge") for (const hero of p.party) if (ctx.hero === undefined || ctx.hero === hero.instanceId) add(hero.equippedItem);
   for (const monster of p.slainMonsters) add(monster);
   return found;
 }

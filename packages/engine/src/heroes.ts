@@ -25,22 +25,19 @@ export function rollableHeroes(state: GameState, player: PlayerId): CardInstance
 }
 
 /**
- * PLAY_HERO (§3.5): the hero goes straight into the party (no Challenge
- * Window until #47) and the player's onHeroEnterParty passives run. With
+ * A played hero that got through its Challenge Window enters the party
+ * (§3.5), and the player's onHeroEnterParty passives run. With
  * `freeRollOnHeroPlay`, the player is then offered the hero's roll for
  * free. Their onCardPlayed passives run last.
  */
-export function playHero(defs: CardIndex, state: GameState, player: PlayerId, card: CardInstanceId, events: GameEvent[]): void {
-  const p = playerState(state, player);
-  p.hand = p.hand.filter((c) => c !== card);
-  p.party.push({ instanceId: card, equippedItem: null, rolledThisTurn: false });
+export function heroEntersParty(defs: CardIndex, state: GameState, player: PlayerId, card: CardInstanceId, events: GameEvent[]): void {
+  playerState(state, player).party.push({ instanceId: card, equippedItem: null, rolledThisTurn: false });
   events.push({ type: "HERO_PLAYED", player, card: { id: card, def: state.cards[card]! } });
   pushTriggers(defs, state, player, "onCardPlayed", { action: "PLAY_HERO" });
   if (state.config.freeRollOnHeroPlay) {
     state.stack.push({ kind: "freeRoll", player, hero: card, bindings: {}, awaiting: null });
   }
   pushTriggers(defs, state, player, "onHeroEnterParty", { heroClass: heroClass(defs, state, card) });
-  runStack(defs, state, events);
 }
 
 /** ROLL_HERO_EFFECT (§3.5): uses up the hero's roll for this turn, then rolls. */

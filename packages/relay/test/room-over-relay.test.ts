@@ -83,8 +83,12 @@ class Tab {
   }
 }
 
-/** Waits until `check` holds, as messages cross the relay. */
-async function until(check: () => boolean, what: string, timeoutMs = 3000): Promise<void> {
+/**
+ * Waits until `check` holds, as messages cross the relay. The timeout is wall
+ * clock time, so it is generous: on a busy CI runner the fuzz games compete
+ * for the CPU, and a single step can take seconds. A real stall still fails.
+ */
+async function until(check: () => boolean, what: string, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!check()) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
@@ -118,7 +122,8 @@ function moveFor(seat: string, tab: Tab, local: boolean): Action | "confirm" | u
 }
 
 describe("a Room over the real relay", () => {
-  it("seats two friends and a bot, and plays a toy game to game over", async () => {
+  // Real wall-clock time crosses the relay, so allow far more than the default 5 s on a busy runner.
+  it("seats two friends and a bot, and plays a toy game to game over", { timeout: 120_000 }, async () => {
     const { roomCode, hostToken } = await createRoom();
     const room = new Room({ engine: toyEngine, ...fastTime(), random: seededRandom("relay"), hostName: "Alice", roomCode });
     const hostSocket = await open(roomCode, { hostToken });

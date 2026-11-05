@@ -110,8 +110,9 @@ export interface FreeRollFrame {
 }
 
 /**
- * A 2d6 roll: for a hero's effect, or to attack a monster. In M2 its total is
- * final as soon as the dice land: no Modifier Window opens yet (#48).
+ * A 2d6 roll: for a hero's effect, to attack a monster, or one side's roll in
+ * a Challenge duel. Its total is final as soon as the dice land: no Modifier
+ * Window opens yet (#48).
  */
 export type RollFrame = {
   kind: "roll";
@@ -119,7 +120,63 @@ export type RollFrame = {
   roller: PlayerId;
   /** "beforeRoll" until the roller's beforeRoll passives are on the stack, then "dice". */
   stage: "beforeRoll" | "dice";
-} & ({ rollKind: "heroEffect"; hero: CardInstanceId } | { rollKind: "monsterAttack"; monster: CardInstanceId });
+} & (
+  | { rollKind: "heroEffect"; hero: CardInstanceId }
+  | { rollKind: "monsterAttack"; monster: CardInstanceId }
+  /** `target` is the card being Challenged; the total goes to the challengeDuel frame below. */
+  | { rollKind: "challenge"; side: "challenger" | "defender"; target: CardInstanceId }
+);
+
+/** The card plays a Challenge Window follows (§3.7). */
+export type ChallengeableAction = "PLAY_HERO" | "PLAY_ITEM" | "PLAY_MAGIC";
+
+/**
+ * A Hero, Item or Magic card that has been played (§7.1, §7.2). Its AP is
+ * spent and it has left the hand, but it is in limbo, in no zone, while its
+ * Challenge Windows are open. Then it resolves as the action it was, or, if a
+ * Challenge succeeded, it has gone to the discard pile with no effect.
+ */
+export interface CardPlayFrame {
+  kind: "cardPlay";
+  player: PlayerId;
+  card: CardInstanceId;
+  action: ChallengeableAction;
+  /** The hero an item goes on; null for a Hero or Magic card. */
+  targetHero: CardInstanceId | null;
+  /** Whether its first Challenge Window has been opened. */
+  opened: boolean;
+  /** Challenges made against it so far, up to `maxChallengesPerPlay`. */
+  challenges: number;
+  /** Whether a Challenge succeeded: the card is in the discard pile and does nothing. */
+  challenged: boolean;
+}
+
+/**
+ * A Challenge Window on the card play below it (GLOSSARY.md "Response
+ * Window"): open to every player but the one who played the card, whatever
+ * they hold. It closes once all of them have passed.
+ */
+export interface ChallengeWindowFrame {
+  kind: "challengeWindow";
+  /** The player who played the card. */
+  player: PlayerId;
+  card: CardInstanceId;
+  passed: PlayerId[];
+}
+
+/**
+ * A Challenge against the card play below it (§7.2): the challenger rolls,
+ * then the defender, then the totals are compared. Ties go to `challengeTieWinner`.
+ */
+export interface ChallengeDuelFrame {
+  kind: "challengeDuel";
+  challenger: PlayerId;
+  defender: PlayerId;
+  /** The card being Challenged. */
+  target: CardInstanceId;
+  challengerTotal: number | null;
+  defenderTotal: number | null;
+}
 
 /**
  * A Magic card being played (§3.5). While it resolves the card is in no
@@ -144,7 +201,15 @@ export interface TurnFrame {
 }
 
 /** The top of the stack is the last element (§7.1). */
-export type StackFrame = EffectFrame | FreeRollFrame | RollFrame | MagicFrame | TurnFrame;
+export type StackFrame =
+  | EffectFrame
+  | FreeRollFrame
+  | RollFrame
+  | MagicFrame
+  | TurnFrame
+  | CardPlayFrame
+  | ChallengeWindowFrame
+  | ChallengeDuelFrame;
 
 /** One player's 2d6 in a first-player roll. */
 export interface FirstPlayerRoll {
@@ -233,7 +298,23 @@ export type GameEvent =
   | ({ type: "DICE_ROLLED"; roll: string; player: PlayerId; dice: [number, number]; bonus: number; total: number } & (
       | { rollKind: "heroEffect"; hero: CardView; succeeded: boolean }
       | { rollKind: "monsterAttack"; monster: CardView; outcome: "slain" | "defeated" | "nothing" }
+      /** One side's roll in a Challenge against `target`. */
+      | { rollKind: "challenge"; side: "challenger" | "defender"; target: CardView }
     ))
+  /** `player` played `card`, which waits in limbo while a Challenge Window is open on it. */
+  | { type: "CHALLENGE_WINDOW_OPENED"; player: PlayerId; card: CardView }
+  /** `player` discarded `card`, a Challenge, to Challenge `defender`'s `target`. */
+  | { type: "CHALLENGE_PLAYED"; player: PlayerId; card: CardView; defender: PlayerId; target: CardView }
+  /** A Challenge was settled. When it `succeeded`, `target` went to the discard pile with no effect. */
+  | {
+      type: "CHALLENGE_RESOLVED";
+      challenger: PlayerId;
+      defender: PlayerId;
+      target: CardView;
+      challengerTotal: number;
+      defenderTotal: number;
+      succeeded: boolean;
+    }
   /** `player` slew `monster`: it went to their slain pile. */
   | { type: "MONSTER_SLAIN"; player: PlayerId; monster: CardView }
   /** `monster` was revealed from the monster deck to fill an empty slot. */
@@ -279,7 +360,8 @@ export type PlayerView = {
   monsterDeckCount: number;
   discardPile: CardView[];
   activeMonsters: CardView[];
-  responseWindow: { kind: "challenge" | "modifier"; awaiting: PlayerId[] } | null;
+  /** The open Response Window and who it still waits on, in turn order. A Challenge Window names the card in limbo. */
+  responseWindow: { kind: "challenge"; awaiting: PlayerId[]; card: CardView } | { kind: "modifier"; awaiting: PlayerId[] } | null;
   /** In full for the player who must answer; everyone else sees only who that is. */
   pendingDecision: PendingDecision | { player: PlayerId } | null;
   firstPlayerRolls: FirstPlayerRoll[][] | null;

@@ -1,7 +1,7 @@
 import { placeholderCardDefs } from "@here-to-slay/cards";
 import { createRoomEngine, type GameEvent, type GameState, type PlayerView } from "@here-to-slay/engine";
 import { describe, expect, it } from "vitest";
-import type { Action } from "@here-to-slay/protocol";
+import type { Action, RoomMsg } from "@here-to-slay/protocol";
 import { Room, type Bot } from "../src/index.js";
 import { Client, FakeClock, FakeTimers, seededRandom } from "./harness.js";
 
@@ -33,6 +33,16 @@ function realRoom(extra: string[], bots = 0, bot?: () => Bot) {
 }
 
 const viewOf = (client: Client) => client.last("update").view as PlayerView;
+
+/** The response prompt standing after these messages: one sent after the latest update. */
+function latestPrompt(msgs: readonly RoomMsg[]): RoomMsg | undefined {
+  let prompt: RoomMsg | undefined;
+  for (const msg of msgs) {
+    if (msg.t === "update") prompt = undefined;
+    else if (msg.t === "passDevice" || msg.t === "respond") prompt = msg;
+  }
+  return prompt;
+}
 
 /** The fuzz policy (TECHNICAL_DESIGN.md §13.1): a random legal action, and END_TURN only when nothing else is legal. */
 function fuzzPick(legal: readonly Action[], random: () => number): Action {
@@ -125,11 +135,14 @@ describe("a Room on the real engine", () => {
     let answered = 0;
     let clientSeq = 0;
     let view = viewOf(host);
-    /** Sends Alice's action and reads every update it caused. */
+    let prompt: RoomMsg | undefined;
+    /** Sends Alice's action, confirming she has the device first if the Room asks her to respond, and reads every update it caused. */
     const send = (action: Action) => {
+      if (prompt?.t === "passDevice") host.send({ t: "confirmPassDevice", seat: alice });
       host.take();
       host.send({ t: "action", seat: alice, action, clientSeq: clientSeq++ });
-      const updates = host.take().filter((m) => m.t === "update");
+      const msgs = host.take();
+      const updates = msgs.filter((m) => m.t === "update");
       for (const msg of updates) {
         for (const e of msg.events as GameEvent[]) {
           if (e.type === "TURN_STARTED") turnsStarted.set(e.player, (turnsStarted.get(e.player) ?? 0) + 1);
@@ -137,6 +150,7 @@ describe("a Room on the real engine", () => {
         }
       }
       view = updates.at(-1)!.view as PlayerView;
+      prompt = latestPrompt(msgs);
     };
     for (let round = 1; round <= rounds; round++) {
       // Every bot move runs straight away, so each time the Room settles it is Alice's turn again.
@@ -144,10 +158,11 @@ describe("a Room on the real engine", () => {
       expect(view.phase).toEqual({ kind: "action" });
       expect(view.turnNumber).toBe(1 + (round - 1) * seatIds.length);
       send({ type: "END_TURN", player: alice });
-      // A bot's hero may ask Alice something, such as a card to discard.
-      while (view.activePlayer !== alice) {
-        expect(view.pendingDecision).toMatchObject({ player: alice });
-        send(view.legalActions[0]!);
+      // Alice may be over her hand limit, or a bot's card may ask Alice something: a card to discard, or whether to Challenge.
+      while (view.activePlayer !== alice || view.phase.kind !== "action") {
+        expect(view.legalActions, "Alice has nothing to do, but the Room is waiting").not.toEqual([]);
+        const responding = view.legalActions.some((a) => a.type === "PASS");
+        send(responding ? { type: "PASS", player: alice } : view.legalActions[0]!);
         answered++;
       }
     }
@@ -166,14 +181,19 @@ describe("a Room on the real engine", () => {
     host.send({ t: "startGame" });
 
     let view = viewOf(host);
+    let prompt = latestPrompt(host.take());
     let won: GameEvent | undefined;
     for (let clientSeq = 0; view.phase.kind !== "gameOver"; clientSeq++) {
       // Bots move straight away, so whenever the Room settles, Alice has something to do.
       expect(clientSeq + botMoves.count, "the game didn't end within 5,000 actions").toBeLessThan(5_000);
       expect(view.legalActions, `the Room stalled in ${view.phase.kind} on ${view.activePlayer}'s turn`).not.toEqual([]);
+      // Asked to respond with a Challenge in hand, Alice first confirms she has the device.
+      if (prompt?.t === "passDevice") host.send({ t: "confirmPassDevice", seat: alice });
       host.take();
       host.send({ t: "action", seat: alice, action: fuzzPick(view.legalActions, random), clientSeq });
-      const updates = host.take().filter((m) => m.t === "update");
+      const msgs = host.take();
+      prompt = latestPrompt(msgs);
+      const updates = msgs.filter((m) => m.t === "update");
       expect(updates, "Alice's action didn't change the game").not.toEqual([]);
       won ??= updates.flatMap((m) => m.events as GameEvent[]).find((e) => e.type === "GAME_WON");
       view = updates.at(-1)!.view as PlayerView;

@@ -8,7 +8,8 @@ import type { CardIndex, GameEvent, GameState, PlayerId } from "./types.js";
  * classes counting the Party Leader. The active player is checked first, then
  * the others in turn order; a player who has both wins by monsters. A win
  * clears the stack, discarding any Magic card still resolving, and any
- * pending Decision.
+ * pending Decision. A card still in limbo goes there too, unless a
+ * successful Challenge already put it there.
  */
 export function checkWin(defs: CardIndex, state: GameState, events: GameEvent[]): void {
   if (state.phase.kind === "gameOver" || state.turnOrder.length === 0) return;
@@ -22,11 +23,16 @@ function win(state: GameState, player: PlayerId, reason: "monsters" | "classes",
   state.winner = player;
   state.winReason = reason;
   state.phase = { kind: "gameOver" };
-  // A Magic card still resolving would otherwise be in no zone.
+  // A Magic card still resolving, or a card waiting on its Challenge Window, would otherwise be in no zone.
   for (const frame of state.stack) {
-    if (frame.kind !== "magic") continue;
-    state.discardPile.push(frame.card);
-    events.push({ type: "MAGIC_DISCARDED", player: frame.player, card: { id: frame.card, def: state.cards[frame.card]! } });
+    if (frame.kind === "magic") {
+      state.discardPile.push(frame.card);
+      events.push({ type: "MAGIC_DISCARDED", player: frame.player, card: { id: frame.card, def: state.cards[frame.card]! } });
+    }
+    if (frame.kind === "cardPlay" && !frame.challenged) {
+      state.discardPile.push(frame.card);
+      events.push({ type: "CARD_DISCARDED", player: frame.player, card: { id: frame.card, def: state.cards[frame.card]! } });
+    }
   }
   state.stack = [];
   state.pendingDecision = null;

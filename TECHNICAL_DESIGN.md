@@ -728,8 +728,9 @@ The top of the stack is the last element. The engine always processes the top fr
 ```
 1. P1 declares PLAY_HERO (AP −1). Card moves hand → "limbo" (not in party yet).
 2. Push cardPlay frame.
-3. Push challengeWindow frame. Every other player with a Challenge card in hand
-   gets a response opportunity (Section 7.4).
+3. Push challengeWindow frame. Every other player is offered PASS, whatever they
+   hold, and PLAY_CHALLENGE for each Challenge card in hand; the Room decides whom
+   to interrupt (Section 7.4).
 4a. All pass → pop window → resolve cardPlay: hero enters party.
     If freeRollOnHeroPlay, offer P1 confirmOptional "Roll for this hero's effect?"
 4b. P2 plays Challenge → pop window → push challengeDuel.
@@ -831,7 +832,7 @@ The full `GameState` exists only in the Host's Room and is **never** sent over t
 
 Other players' hands appear **only as a count**, with no card ids, so nobody can track a card instance as it moves around. PULL takes a random card using the engine's RNG, with no Decision; `CARD_PULLED` shows the card only to the two players involved. Cards shown by LOOK or a search appear only in that player's Decision.
 
-Every `PlayerView` carries a public `responseWindow: { kind: "challenge" | "modifier"; awaiting: PlayerId[] } | null`. The engine offers `PASS` to everyone in a window, whatever they hold, and the Room decides whom to interrupt (Section 7.4).
+Every `PlayerView` carries a public `responseWindow: { kind: "challenge"; awaiting: PlayerId[]; card: CardView } | { kind: "modifier"; awaiting: PlayerId[] } | null`; a Challenge Window names the card waiting in limbo. The engine offers `PASS` to everyone in a window, whatever they hold, and the Room decides whom to interrupt (Section 7.4).
 
 Events are filtered the same way: `CARD_DRAWN` shows the card to the drawer and only "P1 drew a card" to everyone else.
 

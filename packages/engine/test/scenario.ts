@@ -1,7 +1,7 @@
 import { loadCardDefs, type Effect } from "@here-to-slay/cards";
 import type { Action, ConfigPatch } from "@here-to-slay/protocol";
 import { expect } from "vitest";
-import { createRoomEngine, type GameState, type PendingDecision } from "../src/index.js";
+import { createRoomEngine, type ApplyResult, type GameEvent, type GameState, type PendingDecision } from "../src/index.js";
 import { players, smallSet } from "./cards.js";
 
 /**
@@ -108,4 +108,25 @@ export function equip(state: GameState, hero: string, item: string): GameState {
   for (const p of state.players) p.hand = p.hand.filter((c) => c !== item);
   state.players.flatMap((p) => p.party).find((h) => h.instanceId === hero)!.equippedItem = item;
   return state;
+}
+
+/** The players a Challenge or Modifier Window is waiting on, from the public view. */
+export function awaiting(e: Engine, state: GameState): string[] {
+  return e.getPlayerView(state, "spectator").responseWindow?.awaiting ?? [];
+}
+
+/** Everyone the open Response Windows wait on passes, until none is open. Events are gathered from every pass. */
+export function passAll(e: Engine, state: GameState, events: GameEvent[] = []): ApplyResult {
+  for (let who = awaiting(e, state); who.length > 0; who = awaiting(e, state)) {
+    const r = act(e, state, { type: "PASS", player: who[0]! });
+    events.push(...r.events);
+    state = r.state;
+  }
+  return { ok: true, state, events };
+}
+
+/** Plays a card, then lets its Challenge Window close with everyone passing; the events of all of it. */
+export function play(e: Engine, state: GameState, action: Action): ApplyResult {
+  const r = act(e, state, action);
+  return passAll(e, r.state, [...r.events]);
 }
