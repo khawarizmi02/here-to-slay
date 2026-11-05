@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameState } from "../src/index.js";
-import { act, answer, decision, dice, engineWith, equip, hand, inParty, leader, party, start, type Engine } from "./scenario.js";
+import { act, answer, decision, dice, engineWith, equip, hand, inParty, leader, party, roll, start, type Engine } from "./scenario.js";
 
 /** Monsters for these tests, one copy each: `monster_<name>`, slain on 8+, defeated on 4 or less. */
 function monster(name: string, requirement: unknown, more: Record<string, unknown> = {}) {
@@ -43,7 +43,7 @@ function reveal(state: GameState, ...monsters: string[]): GameState {
 const attacks = (e: Engine, state: GameState, player = "p1") =>
   e.getLegalActions(state, player).flatMap((a) => (a.type === "ATTACK_MONSTER" ? [a.monster] : []));
 
-const attack = (e: Engine, state: GameState, monster: string, player = "p1") => act(e, state, { type: "ATTACK_MONSTER", player, monster });
+const attack = (e: Engine, state: GameState, monster: string, player = "p1") => roll(e, state, { type: "ATTACK_MONSTER", player, monster });
 
 const slain = (state: GameState, player: string) => state.players.find((p) => p.id === player)!.slainMonsters;
 
@@ -111,7 +111,8 @@ describe("attacking a monster", () => {
     const top = state.monsterDeck[0]!;
     const r = attack(e, dice(state, 4, 4), "monster_free#0");
     expect(r.events).toEqual([
-      { type: "DICE_ROLLED", roll: expect.any(String), player: "p1", rollKind: "monsterAttack", monster: { id: "monster_free#0", def: "monster_free" }, dice: [4, 4], bonus: 0, total: 8, outcome: "slain" },
+      { type: "DICE_ROLLED", roll: expect.any(String), player: "p1", rollKind: "monsterAttack", monster: { id: "monster_free#0", def: "monster_free" }, dice: [4, 4], bonus: 0, total: 8 },
+      { type: "ROLL_RESOLVED", roll: expect.any(String), player: "p1", rollKind: "monsterAttack", monster: { id: "monster_free#0", def: "monster_free" }, total: 8, outcome: "slain" },
       { type: "MONSTER_SLAIN", player: "p1", monster: { id: "monster_free#0", def: "monster_free" } },
       { type: "MONSTER_REVEALED", monster: { id: top, def: r.state.cards[top] } },
     ]);
@@ -125,8 +126,9 @@ describe("attacking a monster", () => {
     const state = reveal(game(e), "monster_free#0");
     const before = hand(state, "p1").length;
     const r = attack(e, dice(state, 2, 2), "monster_free#0");
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "CARD_DRAWN", "CARD_DRAWN"]);
-    expect(r.events[0]).toMatchObject({ total: 4, outcome: "defeated" });
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED", "CARD_DRAWN", "CARD_DRAWN"]);
+    expect(r.events[0]).toMatchObject({ total: 4 });
+    expect(r.events[1]).toMatchObject({ type: "ROLL_RESOLVED", total: 4, outcome: "defeated" });
     expect(hand(r.state, "p1")).toHaveLength(before + 2);
     expect(r.state.activeMonsters).toEqual(["monster_free#0"]);
     expect(slain(r.state, "p1")).toEqual([]);
@@ -136,7 +138,7 @@ describe("attacking a monster", () => {
     const e = engine();
     const state = reveal(game(e), "monster_free#0");
     const r = attack(e, dice(state, 3, 4), "monster_free#0");
-    expect(r.events).toEqual([expect.objectContaining({ type: "DICE_ROLLED", total: 7, outcome: "nothing" })]);
+    expect(r.events).toEqual([expect.objectContaining({ type: "DICE_ROLLED", total: 7 }), expect.objectContaining({ type: "ROLL_RESOLVED", total: 7, outcome: "nothing" })]);
     expect(r.state.activeMonsters).toEqual(["monster_free#0"]);
     expect(r.state.phase).toEqual({ kind: "action" });
   });
@@ -157,7 +159,8 @@ describe("attacking a monster", () => {
     slain(state, "p1").push("monster_bonus#0");
     state.monsterDeck = state.monsterDeck.filter((m) => m !== "monster_bonus#0");
     const r = attack(e, dice(state, 4, 3), "monster_free#0");
-    expect(r.events[0]).toMatchObject({ dice: [4, 3], bonus: 1, total: 8, outcome: "slain" });
+    expect(r.events[0]).toMatchObject({ dice: [4, 3], bonus: 1, total: 8 });
+    expect(r.events[1]).toMatchObject({ type: "ROLL_RESOLVED", total: 8, outcome: "slain" });
   });
 });
 
@@ -167,15 +170,16 @@ describe("a slain monster", () => {
     const state = inParty(reveal(game(e), "monster_free#0"), "p1", "hero_wizard#0");
     const slew = attack(e, dice(state, 4, 4), "monster_free#0");
     // +3 to hero rolls: 2 + 2 makes 7, enough for the wizard's 7+.
-    const r = act(e, dice(slew.state, 2, 2), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_wizard#0" });
-    expect(r.events[0]).toMatchObject({ rollKind: "heroEffect", dice: [2, 2], bonus: 3, total: 7, succeeded: true });
+    const r = roll(e, dice(slew.state, 2, 2), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_wizard#0" });
+    expect(r.events[0]).toMatchObject({ rollKind: "heroEffect", dice: [2, 2], bonus: 3, total: 7 });
+    expect(r.events[1]).toMatchObject({ type: "ROLL_RESOLVED", total: 7, succeeded: true });
   });
 
   it("runs onMonsterSlain passives, its own included", () => {
     const e = engine();
     const state = reveal(game(e), "monster_draws#0");
     const r = attack(e, dice(state, 4, 4), "monster_draws#0");
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "MONSTER_SLAIN", "MONSTER_REVEALED", "CARD_DRAWN"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED", "MONSTER_SLAIN", "MONSTER_REVEALED", "CARD_DRAWN"]);
   });
 
   it("leaves its slot empty when the monster deck is empty, and the game goes on", () => {
@@ -183,7 +187,7 @@ describe("a slain monster", () => {
     const state = reveal(game(e), "monster_free#0", "monster_pair#0");
     state.monsterDeck = [];
     const r = attack(e, dice(state, 4, 4), "monster_free#0");
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "MONSTER_SLAIN"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED", "MONSTER_SLAIN"]);
     expect(r.state.activeMonsters).toEqual(["monster_pair#0"]);
     expect(r.state.phase).toEqual({ kind: "action" });
     const next = act(e, r.state, { type: "END_TURN", player: "p1" });
@@ -201,7 +205,7 @@ describe("the monster win", () => {
     expect(s.winner).toBeNull();
     const r = attack(e, dice(s, 6, 6), "monster_draws#0");
     // The win comes once the slay is done, before the slain monster's onMonsterSlain draw.
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "MONSTER_SLAIN", "MONSTER_REVEALED", "GAME_WON"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED", "MONSTER_SLAIN", "MONSTER_REVEALED", "GAME_WON"]);
     expect(r.events.at(-1)).toEqual({ type: "GAME_WON", player: "p1", reason: "monsters" });
     expect(r.state).toMatchObject({ winner: "p1", winReason: "monsters", phase: { kind: "gameOver" }, stack: [] });
     expect(e.getLegalActions(r.state, "p1")).toEqual([]);

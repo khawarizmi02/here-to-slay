@@ -75,7 +75,7 @@ describe("the invariant check", () => {
 describe("a fuzz game", () => {
   it("fails at the action cap, naming its seed, when nobody can win", () => {
     const r = fuzzGame("endless", 2, { monstersToWin: 99, classesToWin: 99 }, 200);
-    expect(r.failure).toBe('seed "endless", after 200 actions: no winner within 200 actions');
+    expect(r.failure).toMatch(/^seed "endless", after \d+ actions: no winner within 200 actions, not counting PASSes$/);
     expect(r.state.winner).toBeNull();
   });
 });

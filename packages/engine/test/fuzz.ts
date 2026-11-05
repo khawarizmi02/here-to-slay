@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import { createRng, createRoomEngine, nextInt, type Action, type ApplyResult, type CardIndex, type CardInstanceId, type GameState, type RngState } from "../src/index.js";
 import { players } from "./cards.js";
 
-/** A game that hasn't ended after this many actions fails (TECHNICAL_DESIGN.md §13.1). The engine has no draw rule. */
+/**
+ * A game that hasn't ended after this many actions fails (TECHNICAL_DESIGN.md §13.1). The engine has no draw rule.
+ * PASSes don't count: every roll opens a Modifier Window that every player passes, so they grow with the player count, and a window always closes.
+ */
 export const ACTION_CAP = 5_000;
 
 /** The fuzz policy (§13.1): a random legal action, and END_TURN only when nothing else is legal. */
@@ -73,7 +76,10 @@ export function stateViolations(defs: CardIndex, state: GameState, cardCount: nu
 
 export interface FuzzResult {
   seed: string;
+  /** Every action played, PASSes included. */
   actions: number;
+  /** The actions that count toward the cap: all but PASSes. */
+  counted: number;
   state: GameState;
   /** Why the game failed, naming its seed; null when it reached a win with every invariant holding. */
   failure: string | null;
@@ -86,14 +92,15 @@ const engine = createRoomEngine(placeholderCardDefs);
  * Plays one seeded game of the placeholder set with the fuzz policy for
  * everyone, checking every §13.1 invariant after every action: each player's
  * every legal action is applied, and the one the policy picks is played. A
- * game still going after `cap` actions fails.
+ * game still going after `cap` actions, not counting PASSes, fails.
  */
 export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch = {}, cap = ACTION_CAP): FuzzResult {
   let state = engine.createGame({ players: players(playerCount), seed, config });
   const cardCount = Object.keys(state.cards).length;
   let rng = createRng(`fuzz-policy:${seed}`);
   let actions = 0;
-  const fail = (why: string): FuzzResult => ({ seed, actions, state, failure: `seed "${seed}", after ${actions} actions: ${why}` });
+  let counted = 0;
+  const fail = (why: string): FuzzResult => ({ seed, actions, counted, state, failure: `seed "${seed}", after ${actions} actions: ${why}` });
 
   try {
     for (let last: Action | null = null; ; actions++) {
@@ -109,8 +116,8 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
         }
       }
 
-      if (state.phase.kind === "gameOver") return { seed, actions, state, failure: null };
-      if (actions >= cap) return fail(`no winner within ${cap} actions`);
+      if (state.phase.kind === "gameOver") return { seed, actions, counted, state, failure: null };
+      if (counted >= cap) return fail(`no winner within ${cap} actions, not counting PASSes`);
       // Outside a Response Window, one player at a time has something to do; in one, everyone it waits on may respond.
       const legal = [...results.keys()];
       const actors = new Set(legal.map((a) => a.player));
@@ -118,6 +125,7 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
       const responding = [...actors].every((p) => legal.some((a) => a.player === p && a.type === "PASS"));
       if (actors.size > 1 && !responding) return fail(`${[...actors].join(", ")} all have legal actions at once`);
       [last, rng] = fuzzAction(legal, rng);
+      if (last.type !== "PASS") counted++;
       state = results.get(last)!.state;
     }
   } catch (error) {

@@ -42,7 +42,7 @@ export function attackableMonsters(defs: CardIndex, state: GameState, player: Pl
 
 /** ATTACK_MONSTER (§3.5): rolls 2d6 against `monster`. */
 export function attackMonster(defs: CardIndex, state: GameState, player: PlayerId, monster: CardInstanceId, events: GameEvent[]): void {
-  state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: player, rollKind: "monsterAttack", monster, stage: "beforeRoll" });
+  state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: player, rollKind: "monsterAttack", monster, stage: "beforeRoll", total: null });
   runStack(defs, state, events);
 }
 

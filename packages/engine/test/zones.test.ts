@@ -117,21 +117,21 @@ describe("steal", () => {
   it("does nothing when there is no hero to steal", () => {
     const e = engineWith({ snatch: steal() });
     const r = rollHero(e, start(e), "snatch");
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED"]);
     expect(r.state.pendingDecision).toBeNull();
     expect(r.state.phase).toEqual({ kind: "action" });
 
     // A chosen player whose heroes don't fit the filter is no target either.
     const picky = engineWith({ snatch: steal({ class: "ranger" }) });
     const s = rollHero(picky, inParty(start(picky), "p2", "hero_bard#0"), "snatch");
-    expect(s.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED"]);
+    expect(s.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED"]);
     expect(party(s.state, "p2")).toHaveLength(1);
   });
 
   it("never steals the stealer's own hero, or a Party Leader", () => {
     const e = engineWith({ snatch: steal({ owner: "any" }, "self") });
     const r = rollHero(e, start(e), "snatch");
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED"]);
     expect(r.state.players.map((p) => p.leader)).toEqual(start(e).players.map((p) => p.leader));
   });
 });
@@ -167,7 +167,7 @@ describe("destroy", () => {
 
     const others = engineWith({ smash: destroy() });
     const none = rollHero(others, start(others), "smash");
-    expect(none.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED"]);
+    expect(none.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED"]);
     expect(none.state.pendingDecision).toBeNull();
   });
 
@@ -214,12 +214,12 @@ describe("sacrifice", () => {
     const e = engineWith({ offer: sacrifice(3) });
     const r = rollHero(e, start(e), "offer");
     // The rolling hero is the only one: one option, so it goes without asking.
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "HERO_SACRIFICED"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED", "HERO_SACRIFICED"]);
     expect(party(r.state, "p1")).toEqual([]);
 
     const each = engineWith({ offer: { op: "forEach", players: "other", effect: sacrifice(1) } });
     const none = rollHero(each, start(each), "offer");
-    expect(none.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED"]);
+    expect(none.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED"]);
     expect(none.state.pendingDecision).toBeNull();
   });
 });
@@ -270,21 +270,21 @@ describe("pull", () => {
     state.players[1]!.hand = hand(state, "p2").slice(0, 1);
     const r = rollHero(e, state, "grab");
     // Only p2 has cards to pull, so p1 isn't asked whom.
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "CARD_PULLED"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED", "CARD_PULLED"]);
     expect(hand(r.state, "p2")).toEqual([]);
 
     const empty = start(e, {}, 2);
     empty.discardPile.push(...hand(empty, "p2"));
     empty.players[1]!.hand = [];
     const none = rollHero(e, empty, "grab");
-    expect(none.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED"]);
+    expect(none.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED"]);
     expect(none.state.pendingDecision).toBeNull();
   });
 
   it("never pulls from the puller's own hand", () => {
     const e = engineWith({ grab: { op: "pull", from: "self", amount: 1 } });
     const r = rollHero(e, start(e), "grab");
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED"]);
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED"]);
   });
 });
 

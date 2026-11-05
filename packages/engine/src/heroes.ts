@@ -50,5 +50,5 @@ export function rollHeroEffect(defs: CardIndex, state: GameState, player: Player
 export function startHeroRoll(state: GameState, player: PlayerId, hero: CardInstanceId): void {
   const inParty = playerState(state, player).party.find((h) => h.instanceId === hero);
   if (inParty) inParty.rolledThisTurn = true;
-  state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: player, rollKind: "heroEffect", hero, stage: "beforeRoll" });
+  state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: player, rollKind: "heroEffect", hero, stage: "beforeRoll", total: null });
 }

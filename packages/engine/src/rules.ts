@@ -1,7 +1,9 @@
 import type { CostedAction } from "@here-to-slay/cards";
 import { clone } from "./clone.js";
 import { actionCost } from "./passives.js";
-import { pass, playChallenge, responseActions } from "./challenges.js";
+import { playChallenge } from "./challenges.js";
+import { playModifier, withRoll } from "./modifiers.js";
+import { pass, responseActions } from "./windows.js";
 import { playableHeroes, rollableHeroes, rollHeroEffect } from "./heroes.js";
 import { playableItems, playableMagic, playCard } from "./plays.js";
 import { attackableMonsters, attackMonster } from "./monsters.js";
@@ -22,12 +24,12 @@ const RESOLVERS: Record<PendingDecision["resume"], DecisionResolver> = {
 };
 
 type TurnAction = Extract<Action, { type: CostedAction | "END_TURN" }>;
-type ResponseAction = Extract<Action, { type: "PASS" | "PLAY_CHALLENGE" }>;
+type ResponseAction = Extract<Action, { type: "PASS" | "PLAY_CHALLENGE" | "PLAY_MODIFIER" }>;
 
 /**
  * Every action `player` may take now: one RESOLVE_DECISION per option of
- * their pending Decision; in a Challenge Window that waits on them, PASS and
- * their Challenges; or, for the active player in the action phase with
+ * their pending Decision; in a Response Window that waits on them, PASS and
+ * their Challenges or Modifiers; or, for the active player in the action phase with
  * nothing pending, the turn actions they can pay for.
  */
 export function getLegalActions(defs: CardIndex, state: GameState, player: PlayerId): Action[] {
@@ -58,7 +60,8 @@ export function isDiscardDecision(state: GameState, player: PlayerId): boolean {
 }
 
 /** Applies `action`, or rejects it and leaves `state` unchanged (§6.1). */
-export function applyAction(defs: CardIndex, state: GameState, action: Action): ApplyResult {
+export function applyAction(defs: CardIndex, state: GameState, given: Action): ApplyResult {
+  const action = withRoll(state, given);
   const error = rejectionReason(defs, state, action);
   if (error !== undefined) return { ok: false, state, error, events: [] };
 
@@ -69,7 +72,7 @@ export function applyAction(defs: CardIndex, state: GameState, action: Action): 
     const [choice] = action.answer.selected;
     next.pendingDecision = null;
     RESOLVERS[decision.resume](defs, next, decision, choice, events);
-  } else if (action.type === "PASS" || action.type === "PLAY_CHALLENGE") {
+  } else if (action.type === "PASS" || action.type === "PLAY_CHALLENGE" || action.type === "PLAY_MODIFIER") {
     response(defs, next, action, events);
   } else {
     turnAction(defs, next, action as TurnAction, events);
@@ -111,10 +114,11 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
   }
 }
 
-/** A response in a Challenge Window: it costs no AP (§3.7). */
+/** A response in a Response Window: it costs no AP (§3.6, §3.7). */
 function response(defs: CardIndex, state: GameState, action: ResponseAction, events: GameEvent[]): void {
   if (action.type === "PASS") pass(state, action.player);
-  else playChallenge(defs, state, action.player, action.card, events);
+  else if (action.type === "PLAY_CHALLENGE") playChallenge(defs, state, action.player, action.card, events);
+  else playModifier(state, action.player, action.card, action.value, action.roll!, events);
   runStack(defs, state, events);
 }
 
