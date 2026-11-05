@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { act, decision, dice, engineWith, equip, give, hand, inParty, leader, party, play, start } from "./scenario.js";
+import { act, decision, dice, engineWith, equip, give, hand, inParty, leader, party, play, roll, start } from "./scenario.js";
 
 /** Extra items for these tests: a +2 charm, a -2 curse and a plain curse. */
 const ITEMS = [
@@ -114,22 +114,25 @@ describe("item passives", () => {
     const state = inParty(start(e), "p1", "hero_bard#0");
     give(state, "p1", "item_charm#0");
     const equipped = play(e, state, { type: "PLAY_ITEM", player: "p1", card: "item_charm#0", targetHero: "hero_bard#0" }).state;
-    const r = act(e, dice(equipped, 3, 2), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_bard#0" });
-    expect(r.events[0]).toMatchObject({ type: "DICE_ROLLED", dice: [3, 2], bonus: 2, total: 7, succeeded: true });
+    const r = roll(e, dice(equipped, 3, 2), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_bard#0" });
+    expect(r.events[0]).toMatchObject({ type: "DICE_ROLLED", dice: [3, 2], bonus: 2, total: 7 });
+    expect(r.events[1]).toMatchObject({ type: "ROLL_RESOLVED", total: 7, succeeded: true });
   });
 
   it("leave the rolls of the owner's other heroes alone", () => {
     const e = engine();
     const state = equip(inParty(start(e), "p1", "hero_bard#0", "hero_fighter#0"), "hero_bard#0", "item_charm#0");
-    const r = act(e, dice(state, 3, 2), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_fighter#0" });
-    expect(r.events[0]).toMatchObject({ type: "DICE_ROLLED", bonus: 0, total: 5, succeeded: false });
+    const r = roll(e, dice(state, 3, 2), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_fighter#0" });
+    expect(r.events[0]).toMatchObject({ type: "DICE_ROLLED", bonus: 0, total: 5 });
+    expect(r.events[1]).toMatchObject({ type: "ROLL_RESOLVED", total: 5, succeeded: false });
   });
 
   it("from a Cursed item take away from the hero's owner's roll", () => {
     const e = engine();
     const state = equip(inParty(start(e), "p1", "hero_bard#0"), "hero_bard#0", "cursed_minus#0");
-    const r = act(e, dice(state, 4, 4), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_bard#0" });
-    expect(r.events[0]).toMatchObject({ type: "DICE_ROLLED", bonus: -2, total: 6, succeeded: false });
+    const r = roll(e, dice(state, 4, 4), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_bard#0" });
+    expect(r.events[0]).toMatchObject({ type: "DICE_ROLLED", bonus: -2, total: 6 });
+    expect(r.events[1]).toMatchObject({ type: "ROLL_RESOLVED", total: 6, succeeded: false });
   });
 
   it("run at a trigger hook: an afterRoll draw", () => {
@@ -137,8 +140,8 @@ describe("item passives", () => {
     const state = equip(inParty(start(e), "p1", "hero_bard#0"), "hero_bard#0", "item_coin#0");
     const before = hand(state, "p1").length;
     // A failed roll: only the Coin draws.
-    const r = act(e, dice(state, 1, 1), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_bard#0" });
-    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "CARD_DRAWN"]);
+    const r = roll(e, dice(state, 1, 1), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_bard#0" });
+    expect(r.events.map((ev) => ev.type)).toEqual(["DICE_ROLLED", "ROLL_RESOLVED", "CARD_DRAWN"]);
     expect(hand(r.state, "p1")).toHaveLength(before + 1);
   });
 

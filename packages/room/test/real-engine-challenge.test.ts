@@ -97,7 +97,7 @@ describe("a Challenge through the Room on the real engine", () => {
   it("from a remote Seat, which is asked with a countdown and Challenges in time", async () => {
     const relay = new FakeRelay();
     const { roomCode, hostToken } = relay.createRoom();
-    const { room, host } = roomOn({ roomCode });
+    const { room, host, clock, timers } = roomOn({ roomCode });
     room.attachRelay(relay.connectHost(roomCode, hostToken));
     const bob = new Client(await RelayConnection.join({ dialer: relay.dialer, roomCode, name: "Bob" }));
     await settle();
@@ -113,6 +113,13 @@ describe("a Challenge through the Room on the real engine", () => {
 
     host.take();
     bob.send({ t: "action", seat: "s2", action: CHALLENGE_IT, clientSeq: 0 });
+    await settle();
+    // Both rolls are in, and the Modifier Window on them waits on everyone: Alice passes if she is asked, and Bob's countdown runs out.
+    const duel = viewOf(host);
+    expect(duel.responseWindow).toMatchObject({ kind: "modifier" });
+    if (duel.legalActions.some((a) => a.type === "PASS")) host.send({ t: "action", seat: "s1", action: { type: "PASS", player: "s1" }, clientSeq: 1 });
+    clock.advance(10_000);
+    timers.fireDue();
     await settle();
     expectChallengedAway(viewOf(host), eventsOf(host.take()));
     expectChallengedAway(viewOf(bob), eventsOf(bob.inbox));

@@ -1,3 +1,4 @@
+import { pushModifierWindow } from "./modifiers.js";
 import { fromPlayer, playerState } from "./players.js";
 import { pushTriggers } from "./stack.js";
 import type {
@@ -18,14 +19,8 @@ import type {
  * waits on the players' responses or a duel being rolled.
  */
 
-/** The Challenge Window waiting on responses, if one is open: always the top frame. */
-export function openChallengeWindow(state: GameState): ChallengeWindowFrame | undefined {
-  const top = state.stack.at(-1);
-  return top?.kind === "challengeWindow" && awaitingResponses(state, top).length > 0 ? top : undefined;
-}
-
 /** Who a Challenge Window still waits on: everyone but the player who played the card, in turn order after them, who hasn't passed. */
-export function awaitingResponses(state: GameState, frame: ChallengeWindowFrame): PlayerId[] {
+export function awaitingChallenges(state: GameState, frame: ChallengeWindowFrame): PlayerId[] {
   return fromPlayer(state, frame.player)
     .slice(1)
     .filter((id) => !frame.passed.includes(id));
@@ -38,17 +33,9 @@ function challengeCards(defs: CardIndex, state: GameState, player: PlayerId): Ca
     .sort();
 }
 
-/** In an open Challenge Window: PASS, whatever the player holds, then a PLAY_CHALLENGE per Challenge card in hand. */
-export function responseActions(defs: CardIndex, state: GameState, player: PlayerId): Action[] | undefined {
-  const window = openChallengeWindow(state);
-  if (window === undefined) return undefined;
-  if (!awaitingResponses(state, window).includes(player)) return [];
-  return [{ type: "PASS", player }, ...challengeCards(defs, state, player).map((card) => ({ type: "PLAY_CHALLENGE" as const, player, card }))];
-}
-
-/** PASS: the player is done with this window. It closes once everyone in it has passed. */
-export function pass(state: GameState, player: PlayerId): void {
-  openChallengeWindow(state)!.passed.push(player);
+/** In an open Challenge Window that waits on `player`: a PLAY_CHALLENGE per Challenge card in their hand. */
+export function challengeActions(defs: CardIndex, state: GameState, player: PlayerId): Action[] {
+  return challengeCards(defs, state, player).map((card) => ({ type: "PLAY_CHALLENGE" as const, player, card }));
 }
 
 /**
@@ -64,7 +51,17 @@ export function playChallenge(defs: CardIndex, state: GameState, player: PlayerI
   p.hand = p.hand.filter((c) => c !== card);
   state.discardPile.push(card);
   events.push({ type: "CHALLENGE_PLAYED", player, card: view(state, card), defender: window.player, target: view(state, window.card) });
-  state.stack.push({ kind: "challengeDuel", challenger: player, defender: window.player, target: window.card, challengerTotal: null, defenderTotal: null });
+  state.stack.push({
+    kind: "challengeDuel",
+    challenger: player,
+    defender: window.player,
+    target: window.card,
+    challengerRoll: null,
+    defenderRoll: null,
+    challengerTotal: null,
+    defenderTotal: null,
+    modified: false,
+  });
   pushTriggers(defs, state, window.player, "onChallenged", { action: play.action });
 }
 
@@ -76,15 +73,23 @@ export function pushChallengeWindow(state: GameState, play: CardPlayFrame, event
 }
 
 /**
- * Steps a duel: the challenger's roll, then the defender's, then the
- * verdict. A successful Challenge sends the card to the discard pile with no
+ * Steps a duel: the challenger's roll, then the defender's, then one
+ * Modifier Window on both, then the verdict. A successful Challenge sends the card to the discard pile with no
  * effect; the AP spent on it stays spent. A failed one lets the card resolve,
  * after another Challenge Window if `maxChallengesPerPlay` allows one.
  */
 export function challengeDuelStep(state: GameState, duel: ChallengeDuelFrame, events: GameEvent[]): void {
   if (duel.challengerTotal === null || duel.defenderTotal === null) {
     const side = duel.challengerTotal === null ? "challenger" : "defender";
-    state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: duel[side], rollKind: "challenge", side, target: duel.target, stage: "beforeRoll" });
+    state.stack.push({ kind: "roll", rollId: `r${state.nextRollId++}`, roller: duel[side], rollKind: "challenge", side, target: duel.target, stage: "beforeRoll", total: null });
+    return;
+  }
+  if (!duel.modified) {
+    duel.modified = true;
+    pushModifierWindow(state, [
+      { roll: duel.challengerRoll!, player: duel.challenger, total: duel.challengerTotal },
+      { roll: duel.defenderRoll!, player: duel.defender, total: duel.defenderTotal },
+    ]);
     return;
   }
   state.stack.pop();
@@ -108,12 +113,17 @@ export function challengeDuelStep(state: GameState, duel: ChallengeDuelFrame, ev
   }
 }
 
-/** Stores a Challenge roll's total in the duel it belongs to, which is on top of the stack once the roll is popped. */
-export function challengeRolled(state: GameState, side: "challenger" | "defender", total: number): void {
+/** Stores a Challenge roll's id and total before Modifiers in the duel it belongs to, which is on top of the stack once the roll is popped. */
+export function challengeRolled(state: GameState, side: "challenger" | "defender", roll: string, total: number): void {
   const duel = state.stack.at(-1);
   if (duel?.kind !== "challengeDuel") throw new Error("A Challenge roll with no duel under it");
-  if (side === "challenger") duel.challengerTotal = total;
-  else duel.defenderTotal = total;
+  if (side === "challenger") {
+    duel.challengerRoll = roll;
+    duel.challengerTotal = total;
+  } else {
+    duel.defenderRoll = roll;
+    duel.defenderTotal = total;
+  }
 }
 
 function view(state: GameState, card: CardInstanceId) {

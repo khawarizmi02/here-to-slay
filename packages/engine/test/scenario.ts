@@ -84,9 +84,14 @@ export function answer(e: Engine, state: GameState, id: string) {
 export const hand = (state: GameState, player: string) => state.players.find((p) => p.id === player)!.hand;
 export const party = (state: GameState, player: string) => state.players.find((p) => p.id === player)!.party;
 
-/** Rolls `name`'s hero for p1 with a 7, so its effect runs. */
+/** Rolls `name`'s hero for p1 with a 7, so its effect runs once everyone passes the Modifier Window. */
 export function rollHero(e: Engine, state: GameState, name: string) {
-  return act(e, dice(inParty(state, "p1", `hero_${name}#0`), 4, 3), { type: "ROLL_HERO_EFFECT", player: "p1", hero: `hero_${name}#0` });
+  return roll(e, dice(inParty(state, "p1", `hero_${name}#0`), 4, 3), { type: "ROLL_HERO_EFFECT", player: "p1", hero: `hero_${name}#0` });
+}
+
+/** Takes an action that rolls, then lets every Modifier Window it opens close with everyone passing; the events of all of it. */
+export function roll(e: Engine, state: GameState, action: Action): ApplyResult {
+  return play(e, state, action);
 }
 
 /** Gives `player` the Party Leader of `cls`, swapping leaders with whoever had it. */
@@ -123,6 +128,22 @@ export function passAll(e: Engine, state: GameState, events: GameEvent[] = []): 
     state = r.state;
   }
   return { ok: true, state, events };
+}
+
+/** Everyone the open window waits on passes once, closing just that window: a window it uncovers, or a nested one, stays open. */
+export function passWindow(e: Engine, state: GameState, events: GameEvent[] = []): ApplyResult {
+  for (const player of awaiting(e, state)) {
+    const r = act(e, state, { type: "PASS", player });
+    events.push(...r.events);
+    state = r.state;
+  }
+  return { ok: true, state, events };
+}
+
+/** Takes an action, then lets the one window it leaves open, if any, close with everyone passing; the events of both. */
+export function actPassing(e: Engine, state: GameState, action: Action): ApplyResult {
+  const r = act(e, state, action);
+  return passWindow(e, r.state, [...r.events]);
 }
 
 /** Plays a card, then lets its Challenge Window close with everyone passing; the events of all of it. */

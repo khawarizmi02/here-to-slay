@@ -125,8 +125,8 @@ describe("a Room on the real engine", () => {
   it("lets bots take their turns, round after round, without stalling", () => {
     const { host, seatIds } = realRoom([], 3);
     const alice = seatIds[0]!;
-    // Alice keeps her 5 cards; a bot that draws has hand-limit discards to make.
-    host.send({ t: "setConfig", config: { firstPlayerMethod: "firstSeat", handLimit: 5 } });
+    // Alice keeps her 5 cards; a bot that draws has hand-limit discards to make. Nobody can win, so every round is played.
+    host.send({ t: "setConfig", config: { firstPlayerMethod: "firstSeat", handLimit: 5, monstersToWin: 99, classesToWin: 99 } });
     host.send({ t: "startGame" });
 
     const rounds = 12;

@@ -111,15 +111,21 @@ export interface FreeRollFrame {
 
 /**
  * A 2d6 roll: for a hero's effect, to attack a monster, or one side's roll in
- * a Challenge duel. Its total is final as soon as the dice land: no Modifier
- * Window opens yet (#48).
+ * a Challenge duel. A hero or monster roll opens its own Modifier Window once
+ * the dice land, and settles once it closes. A Challenge roll hands its total
+ * to its duel, which opens one window on both rolls (§7.2, §7.3).
  */
 export type RollFrame = {
   kind: "roll";
   rollId: string;
   roller: PlayerId;
-  /** "beforeRoll" until the roller's beforeRoll passives are on the stack, then "dice". */
-  stage: "beforeRoll" | "dice";
+  /**
+   * "beforeRoll" until the roller's beforeRoll passives are on the stack,
+   * then "dice" until the dice land, then "settle" while its Modifier Window is open above it.
+   */
+  stage: "beforeRoll" | "dice" | "settle";
+  /** The final total, set as its Modifier Window closes; null before then, and always for a Challenge roll. */
+  total: number | null;
 } & (
   | { rollKind: "heroEffect"; hero: CardInstanceId }
   | { rollKind: "monsterAttack"; monster: CardInstanceId }
@@ -166,7 +172,8 @@ export interface ChallengeWindowFrame {
 
 /**
  * A Challenge against the card play below it (§7.2): the challenger rolls,
- * then the defender, then the totals are compared. Ties go to `challengeTieWinner`.
+ * then the defender, then one Modifier Window opens on both rolls, then the
+ * totals are compared. Ties go to `challengeTieWinner`.
  */
 export interface ChallengeDuelFrame {
   kind: "challengeDuel";
@@ -174,8 +181,40 @@ export interface ChallengeDuelFrame {
   defender: PlayerId;
   /** The card being Challenged. */
   target: CardInstanceId;
+  /** Each side's roll id and total: the dice and passives, then, once the Modifier Window closes, the final total. */
+  challengerRoll: string | null;
+  defenderRoll: string | null;
   challengerTotal: number | null;
   defenderTotal: number | null;
+  /** Whether the Modifier Window on both rolls has been opened. */
+  modified: boolean;
+}
+
+/** A Modifier played on a roll, with the option its player chose (§3.6, §7.1). */
+export interface AppliedModifier {
+  player: PlayerId;
+  card: CardInstanceId;
+  value: number;
+}
+
+/** One roll in a Modifier Window: `total` is its dice, passive bonus and every Modifier played on it so far. */
+export interface WindowRoll {
+  roll: string;
+  player: PlayerId;
+  total: number;
+  modifiers: AppliedModifier[];
+}
+
+/**
+ * A Modifier Window (GLOSSARY.md "Response Window") on the roll or Challenge
+ * duel below it: one roll, or a Challenge's two. Open to every player, the
+ * roller included, whatever they hold. Any Modifier reopens it to everyone;
+ * it closes once all of them have passed since the last one.
+ */
+export interface ModifierWindowFrame {
+  kind: "modifierWindow";
+  rolls: WindowRoll[];
+  passed: PlayerId[];
 }
 
 /**
@@ -209,7 +248,8 @@ export type StackFrame =
   | TurnFrame
   | CardPlayFrame
   | ChallengeWindowFrame
-  | ChallengeDuelFrame;
+  | ChallengeDuelFrame
+  | ModifierWindowFrame;
 
 /** One player's 2d6 in a first-player roll. */
 export interface FirstPlayerRoll {
@@ -289,17 +329,25 @@ export type GameEvent =
   | { type: "ITEM_DISCARDED"; player: PlayerId; item: CardView }
   /** `player` took a random card from `from`'s hand. `card` is present only in their two copies of the event. */
   | { type: "CARD_PULLED"; player: PlayerId; from: PlayerId; card?: CardView }
-  /**
-   * A roll: `bonus` is from passives. A hero's effect roll succeeds when
-   * `total` is at least the hero's requirement. A monster attack slays the
-   * monster at or above its slay value, is defeated at or below its defeat
-   * value, and otherwise does nothing.
-   */
+  /** The dice of a roll landed: `bonus` is from passives, and `total` is before any Modifier. A Modifier Window opens on it. */
   | ({ type: "DICE_ROLLED"; roll: string; player: PlayerId; dice: [number, number]; bonus: number; total: number } & (
-      | { rollKind: "heroEffect"; hero: CardView; succeeded: boolean }
-      | { rollKind: "monsterAttack"; monster: CardView; outcome: "slain" | "defeated" | "nothing" }
+      | { rollKind: "heroEffect"; hero: CardView }
+      | { rollKind: "monsterAttack"; monster: CardView }
       /** One side's roll in a Challenge against `target`. */
       | { rollKind: "challenge"; side: "challenger" | "defender"; target: CardView }
+    ))
+  /** `player` discarded `card`, a Modifier, adding `value` to `roll`, which now totals `total`. */
+  | { type: "MODIFIER_PLAYED"; player: PlayerId; card: CardView; roll: string; value: number; total: number }
+  /**
+   * A hero or monster roll's Modifier Window closed at its final `total`. A
+   * hero's effect roll succeeds when it is at least the hero's requirement. A
+   * monster attack slays the monster at or above its slay value, is defeated
+   * at or below its defeat value, and otherwise does nothing. A Challenge's
+   * rolls settle in CHALLENGE_RESOLVED instead.
+   */
+  | ({ type: "ROLL_RESOLVED"; roll: string; player: PlayerId; total: number } & (
+      | { rollKind: "heroEffect"; hero: CardView; succeeded: boolean }
+      | { rollKind: "monsterAttack"; monster: CardView; outcome: "slain" | "defeated" | "nothing" }
     ))
   /** `player` played `card`, which waits in limbo while a Challenge Window is open on it. */
   | { type: "CHALLENGE_WINDOW_OPENED"; player: PlayerId; card: CardView }
@@ -360,8 +408,15 @@ export type PlayerView = {
   monsterDeckCount: number;
   discardPile: CardView[];
   activeMonsters: CardView[];
-  /** The open Response Window and who it still waits on, in turn order. A Challenge Window names the card in limbo. */
-  responseWindow: { kind: "challenge"; awaiting: PlayerId[]; card: CardView } | { kind: "modifier"; awaiting: PlayerId[] } | null;
+  /**
+   * The open Response Window and who it still waits on, in turn order. A
+   * Challenge Window names the card in limbo; a Modifier Window lists its
+   * rolls (one, or a Challenge's two) with their totals so far.
+   */
+  responseWindow:
+    | { kind: "challenge"; awaiting: PlayerId[]; card: CardView }
+    | { kind: "modifier"; awaiting: PlayerId[]; rolls: WindowRoll[] }
+    | null;
   /** In full for the player who must answer; everyone else sees only who that is. */
   pendingDecision: PendingDecision | { player: PlayerId } | null;
   firstPlayerRolls: FirstPlayerRoll[][] | null;

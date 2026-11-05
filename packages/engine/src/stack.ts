@@ -1,7 +1,8 @@
-import { challengeDuelStep, challengeRolled, openChallengeWindow } from "./challenges.js";
+import { challengeDuelStep, challengeRolled } from "./challenges.js";
 import type { Effect, HeroFilter, PassiveAbility, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
-import { heroDef, startHeroRoll } from "./heroes.js";
+import { heroDef, rollableHeroes, startHeroRoll } from "./heroes.js";
+import { closeModifierWindow, pushModifierWindow } from "./modifiers.js";
 import { monsterAttackOutcome, monsterDef, pushPenalty, slayMonster } from "./monsters.js";
 import { discardHero, heroesMatching, stealHero, type OwnedHero } from "./party.js";
 import { cardPlayStep } from "./plays.js";
@@ -11,6 +12,7 @@ import { nextInt, rollD6 } from "./rng.js";
 import { heroClass } from "./selectors.js";
 import { discardFromHand, drawCards, turnStep } from "./turns.js";
 import { checkWin } from "./wins.js";
+import { openWindow } from "./windows.js";
 import {
   ACCEPT,
   DECLINE,
@@ -29,14 +31,14 @@ import {
 /**
  * The resumable effect interpreter (TECHNICAL_DESIGN.md §6.5 Option A).
  * Steps the frame on top of the stack until the stack is empty, a Decision
- * is pending, a Challenge Window waits on responses, or the game is over. Each step is atomic: under
+ * is pending, a Response Window waits on responses, or the game is over. Each step is atomic: under
  * `winCheckTiming: "immediate"` the game can end after any of them.
  * While anything is on the stack the phase is "resolving".
  */
 export function runStack(defs: CardIndex, state: GameState, events: GameEvent[]): void {
   // Whatever pushed onto the stack may itself have changed the state, as a hero entering a party does.
   if (state.config.winCheckTiming === "immediate") checkWin(defs, state, events);
-  while (state.stack.length > 0 && state.pendingDecision === null && state.phase.kind !== "gameOver" && openChallengeWindow(state) === undefined) {
+  while (state.stack.length > 0 && state.pendingDecision === null && state.phase.kind !== "gameOver" && openWindow(state) === undefined) {
     if (state.phase.kind === "action") state.phase = { kind: "resolving" };
     step(defs, state, events);
     if (state.config.winCheckTiming === "immediate") checkWin(defs, state, events);
@@ -71,6 +73,9 @@ function step(defs: CardIndex, state: GameState, events: GameEvent[]): void {
       // Stepped only once nobody is waited on: it closes.
       state.stack.pop();
       return;
+    case "modifierWindow":
+      // Likewise, handing the final totals to the frame below.
+      return closeModifierWindow(state);
     case "challengeDuel":
       return challengeDuelStep(state, frame, events);
   }
@@ -146,9 +151,11 @@ function freeRoll(defs: CardIndex, state: GameState, frame: FreeRollFrame, event
 
 /**
  * Runs the roller's beforeRoll passives, then rolls 2d6 and adds passive
- * bonuses, then settles the roll: a hero roll's success puts the hero's
- * effect on the stack, a monster attack slays, applies the penalty or
- * does nothing, and a Challenge roll's total goes to its duel. The roller's afterRoll passives go on top, so they run first.
+ * bonuses. A Challenge roll's total goes to its duel, which opens the
+ * Modifier Window on both rolls. A hero or monster roll opens its own window,
+ * and once it closes settles at the final total: a hero roll's success puts
+ * the hero's effect on the stack, and a monster attack slays, applies the
+ * penalty or does nothing. The roller's afterRoll passives go on top, so they run first.
  */
 function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameEvent[]): void {
   // A monster attack is the whole party's roll, so every item on it counts.
@@ -162,26 +169,39 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
     pushTriggers(defs, state, frame.roller, "beforeRoll", ctx);
     return;
   }
+  if (frame.stage === "dice") {
+    let a: number;
+    let b: number;
+    [a, state.rng] = rollD6(state.rng);
+    [b, state.rng] = rollD6(state.rng);
+    const bonus = rollBonus(defs, state, frame.roller, ctx);
+    const total = a + b + bonus;
+    const rolled = { type: "DICE_ROLLED" as const, roll: frame.rollId, player: frame.roller, dice: [a, b] as [number, number], bonus, total };
+    if (frame.rollKind === "challenge") {
+      state.stack.pop();
+      events.push({ ...rolled, rollKind: "challenge", side: frame.side, target: { id: frame.target, def: state.cards[frame.target]! } });
+      challengeRolled(state, frame.side, frame.rollId, total);
+      pushTriggers(defs, state, frame.roller, "afterRoll", ctx);
+      return;
+    }
+    if (frame.rollKind === "heroEffect") events.push({ ...rolled, rollKind: "heroEffect", hero: { id: frame.hero, def: state.cards[frame.hero]! } });
+    else events.push({ ...rolled, rollKind: "monsterAttack", monster: { id: frame.monster, def: state.cards[frame.monster]! } });
+    frame.stage = "settle";
+    pushModifierWindow(state, [{ roll: frame.rollId, player: frame.roller, total }]);
+    return;
+  }
   state.stack.pop();
-  let a: number;
-  let b: number;
-  [a, state.rng] = rollD6(state.rng);
-  [b, state.rng] = rollD6(state.rng);
-  const bonus = rollBonus(defs, state, frame.roller, ctx);
-  const total = a + b + bonus;
-  const rolled = { type: "DICE_ROLLED" as const, roll: frame.rollId, player: frame.roller, dice: [a, b] as [number, number], bonus, total };
+  const total = frame.total!;
+  const settled = { type: "ROLL_RESOLVED" as const, roll: frame.rollId, player: frame.roller, total };
   if (frame.rollKind === "heroEffect") {
     const def = heroDef(defs, state, frame.hero)!;
     const succeeded = total >= def.rollRequirement;
-    events.push({ ...rolled, rollKind: "heroEffect", hero: { id: frame.hero, def: def.id }, succeeded });
+    events.push({ ...settled, rollKind: "heroEffect", hero: { id: frame.hero, def: def.id }, succeeded });
     if (succeeded) state.stack.push(effectFrame(def.effect, frame.roller, frame.roller, frame.hero));
-  } else if (frame.rollKind === "challenge") {
-    events.push({ ...rolled, rollKind: "challenge", side: frame.side, target: { id: frame.target, def: state.cards[frame.target]! } });
-    challengeRolled(state, frame.side, total);
-  } else {
+  } else if (frame.rollKind === "monsterAttack") {
     const def = monsterDef(defs, state, frame.monster)!;
     const outcome = monsterAttackOutcome(def, total);
-    events.push({ ...rolled, rollKind: "monsterAttack", monster: { id: frame.monster, def: def.id }, outcome });
+    events.push({ ...settled, rollKind: "monsterAttack", monster: { id: frame.monster, def: def.id }, outcome });
     if (outcome === "slain") slayMonster(defs, state, frame.roller, frame.monster, events);
     if (outcome === "defeated") pushPenalty(defs, state, frame.roller, frame.monster);
   }
@@ -283,6 +303,11 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
       return sacrificeStep(defs, state, frame, effect, events);
     case "pull":
       return pullStep(defs, state, frame, effect, events);
+    case "custom":
+      if (effect.handler === "rollHero") return rollHeroStep(defs, state, frame, events);
+      // Other handlers arrive with the cards that need them.
+      state.stack.pop();
+      return;
     default:
       // The other ops arrive with the cards that need them.
       state.stack.pop();
@@ -330,6 +355,28 @@ function pickHero(
   const discard = options.every((c) => c.owner === chooser);
   ask(defs, state, frame, key, { player: chooser, kind: "chooseHero", prompt, options: decisionOptions(state, { cards: options.map((c) => c.hero) }), discard }, events);
   return undefined;
+}
+
+/**
+ * The custom handler "rollHero": `self` rolls for one of their heroes that
+ * hasn't rolled this turn, picked as a Decision if there are several, and
+ * nothing happens if there is none. The roll is nested in the effect, so it
+ * opens its own Modifier Window and settles before the effect goes on.
+ */
+function rollHeroStep(defs: CardIndex, state: GameState, frame: EffectFrame, events: GameEvent[]): void {
+  const heroes = rollableHeroes(state, frame.self);
+  if (!("hero" in frame.bindings)) {
+    if (heroes.length === 0) {
+      state.stack.pop();
+      return;
+    }
+    const prompt = `${sourceName(defs, state, frame)}: choose a hero to roll for`;
+    ask(defs, state, frame, "hero", { player: frame.self, kind: "chooseHero", prompt, options: decisionOptions(state, { cards: heroes }), discard: false }, events);
+    return;
+  }
+  state.stack.pop();
+  const hero = frame.bindings.hero;
+  if (hero != null && heroes.includes(hero)) startHeroRoll(state, frame.self, hero);
 }
 
 /** `who` sacrifices `amount` of their heroes, or all of them if they have fewer: one Decision per hero. */

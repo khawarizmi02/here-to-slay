@@ -1,5 +1,5 @@
 import { clone } from "./clone.js";
-import { awaitingResponses, openChallengeWindow } from "./challenges.js";
+import { awaitingResponses, openWindow } from "./windows.js";
 import { getLegalActions } from "./rules.js";
 import type { CardIndex, CardInstanceId, CardView, GameEvent, GameState, PlayerId, PlayerView } from "./types.js";
 
@@ -10,11 +10,13 @@ function pendingDecisionFor(state: GameState, viewer: PlayerId | "spectator"): P
   return decision.player === viewer ? clone(decision) : { player: decision.player };
 }
 
-/** The open Response Window, which is public: who it waits on, and the card a Challenge Window is about. */
+/** The open Response Window, which is public: who it waits on, and the card a Challenge Window is about or a Modifier Window's rolls. */
 function responseWindowView(state: GameState): PlayerView["responseWindow"] {
-  const window = openChallengeWindow(state);
+  const window = openWindow(state);
   if (window === undefined) return null;
-  return { kind: "challenge", awaiting: awaitingResponses(state, window), card: { id: window.card, def: state.cards[window.card]! } };
+  const awaiting = awaitingResponses(state, window);
+  if (window.kind === "modifierWindow") return { kind: "modifier", awaiting, rolls: clone(window.rolls) };
+  return { kind: "challenge", awaiting, card: { id: window.card, def: state.cards[window.card]! } };
 }
 
 /** One player's redacted view (TECHNICAL_DESIGN.md §9). Shares nothing with `state`. */

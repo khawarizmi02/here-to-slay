@@ -451,12 +451,18 @@ export interface PassiveAbility {
 The engine calls `runHooks(state, hookPoint, context)` at each hook point and gathers every passive from leaders, items, and slain monsters.
 
 - An item's passive applies to rolls only when the hero wearing it is the one rolling. A monster attack is the whole party's roll, so every item in the attacker's party counts for it. At other hooks it applies to the whole party of the hero's owner, including a Cursed item on an opponent's hero.
-- A trigger passive runs as an effect on the stack, controlled by the passive's owner. `beforeRoll` runs before the dice, `afterRoll` right after them (before a successful hero's effect), `onHeroEnterParty` and `onHeroLeaveParty` as a hero joins or leaves a party, and `onCardPlayed` once the played card has resolved. `onTurnStart` and `onTurnEnd` passives run on the stack too, so they may ask Decisions; the rest of the turn's start or end waits for them.
+- A trigger passive runs as an effect on the stack, controlled by the passive's owner. `beforeRoll` runs before the dice, `afterRoll` once the roll settles: after its Modifier Window closes (before a successful hero's effect), or for a Challenge roll right after the dice, `onHeroEnterParty` and `onHeroLeaveParty` as a hero joins or leaves a party, and `onCardPlayed` once the played card has resolved. `onTurnStart` and `onTurnEnd` passives run on the stack too, so they may ask Decisions; the rest of the turn's start or end waits for them.
 
 ### 5.5 Extensibility for expansions
 - New classes: extend `HeroClass` and update `classesToWin`.
 - New card types: add to `CardType`, add a Zod schema, and add an action if the card is played differently.
 - New mechanics: add hook points or effect ops. Avoid special-case `if (card.id === ...)` code.
+
+Custom handlers the engine knows (`{ op: "custom", handler }`; an unknown handler does nothing):
+
+| Handler | Effect |
+|---|---|
+| `rollHero` | `self` rolls for one of their heroes that hasn't rolled this turn, chosen as a Decision when there are several; nothing if none. The roll is nested in the effect, so it gets its own Modifier Window and settles before the effect goes on (§7.6). |
 
 ### 5.6 Placeholder card examples
 
@@ -712,9 +718,12 @@ export type StackFrame =
   | { kind: "challengeDuel"; challenger: PlayerId; defender: PlayerId;
       challengerRoll?: RollFrameRef; defenderRoll?: RollFrameRef }
   | { kind: "roll"; rollId: string; roller: PlayerId; rollKind: RollKind;
-      dice: [number, number] | null; modifiers: AppliedModifier[];
-      passed: PlayerId[]; onComplete: RollCompletion }
+      stage: "beforeRoll" | "dice" | "settle"; total: number | null }
+  | { kind: "modifierWindow"; rolls: WindowRoll[]; passed: PlayerId[] }
   | { kind: "monsterAttack"; player: PlayerId; monster: CardInstanceId };
+
+// One roll in a Modifier Window: its total so far, dice + passives + modifiers.
+export interface WindowRoll { roll: string; player: PlayerId; total: number; modifiers: AppliedModifier[] }
 
 export type RollKind = "heroEffect" | "monsterAttack" | "challenge" | "firstPlayer";
 
@@ -757,6 +766,10 @@ The top of the stack is the last element. The engine always processes the top fr
 ```
 
 **Step 4 matters.** Without resetting the passed list, the last player to respond could never be answered.
+
+The Modifier Window is its own `modifierWindow` frame on top of the roll. A hero or monster roll pushes one with its own roll, and settles once it closes. A Challenge roll hands its total to the duel instead; once both sides have rolled, the duel pushes one window holding both rolls, and the totals are compared once it closes. The window waits on every player in turn order from the (first) roller. Events: `DICE_ROLLED` when the dice land (total before modifiers), `MODIFIER_PLAYED` for each modifier, then `ROLL_RESOLVED` with the final total and outcome (a Challenge settles in `CHALLENGE_RESOLVED`).
+
+A roll pushed while another is resolving, such as one in a hero's effect or in a `beforeRoll` passive, sits above it on the stack, so its window opens and closes, and it settles, before the outer roll or effect goes on.
 
 ### 7.4 Who gets asked in a response window?
 
@@ -1106,7 +1119,7 @@ Render cards with HTML/CSS (title, class icon, roll number, text) so placeholder
 - Each hero holds at most one item.
 - A player with `winner` set means the phase is `gameOver`.
 - `getLegalActions` never returns an action that `applyAction` rejects.
-- Every game ends within 5,000 actions. Fuzz bots pick a random legal action and only `END_TURN` when nothing else is legal. A game that hits the cap fails and reports its seed. The engine has no draw rule.
+- Every game ends within 5,000 actions, not counting `PASS`es (each roll's Modifier Window is passed by every player, so they grow with the player count, and a window always closes once all have passed). Fuzz bots pick a random legal action and only `END_TURN` when nothing else is legal. A game that hits the cap fails and reports its seed. The engine has no draw rule.
 
 ### 13.2 Scenario test helper
 
