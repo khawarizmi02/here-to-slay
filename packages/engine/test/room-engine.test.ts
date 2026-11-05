@@ -127,6 +127,34 @@ describe("actions and events", () => {
     expect(r.error).toBeTruthy();
   });
 
+  it("leaves the state it was given as it was, and returns one that is still plain JSON", () => {
+    const state = start({ firstPlayerMethod: "firstSeat" });
+    const snapshot = JSON.parse(JSON.stringify(state)) as unknown;
+    let next = state;
+    for (const type of ["DRAW_CARD", "DRAW_CARD", "END_TURN"] as const) {
+      const r = engine.applyAction(next, { type, player: next.activePlayer });
+      expect(r.ok).toBe(true);
+      next = r.state;
+    }
+    expect(state).toEqual(snapshot);
+    expect(next).not.toEqual(snapshot);
+    expect(JSON.parse(JSON.stringify(next))).toEqual(next);
+  });
+
+  it("matches a listed action whatever order its fields are in, and with an unset optional field", () => {
+    const state = start({ firstPlayerMethod: "firstSeat" });
+    const card = state.players[0]!.hand.find((c) => state.cards[c]!.startsWith("hero"))!;
+    expect(engine.applyAction(state, { card, player: "p1", type: "PLAY_HERO" }).ok).toBe(true);
+    expect(engine.applyAction(state, { type: "PLAY_HERO", player: "p1", card, roll: undefined } as never).ok).toBe(true);
+    expect(engine.applyAction(state, { type: "PLAY_HERO", player: "p1", card, extra: 1 } as never).ok).toBe(false);
+  });
+
+  it("can't have its cards or rules changed once the game is set up", () => {
+    const state = start({ firstPlayerMethod: "firstSeat" });
+    expect(Object.isFrozen(state.cards)).toBe(true);
+    expect(Object.isFrozen(state.config)).toBe(true);
+  });
+
   it("shows a drawn card only to the drawer", () => {
     const events: GameEvent[] = [{ type: "CARD_DRAWN", player: "p1", card: { id: "hero_bard#0", def: "hero_bard" } }];
     expect(engine.getPlayerEvents(events, "p1")).toEqual(events);

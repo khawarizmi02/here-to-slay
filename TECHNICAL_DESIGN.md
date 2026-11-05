@@ -1119,7 +1119,7 @@ Render cards with HTML/CSS (title, class icon, roll number, text) so placeholder
 - Each hero holds at most one item.
 - A player with `winner` set means the phase is `gameOver`.
 - `getLegalActions` never returns an action that `applyAction` rejects.
-- Every game ends within 5,000 actions, not counting `PASS`es (each roll's Modifier Window is passed by every player, so they grow with the player count, and a window always closes once all have passed). Fuzz bots pick a random legal action and only `END_TURN` when nothing else is legal. A game that hits the cap fails and reports its seed. The engine has no draw rule.
+- Every game ends within 10,000 actions, not counting `PASS`es (each roll's Modifier Window is passed by every player, so they grow with the player count, and a window always closes once all have passed). Fuzz bots pick a random legal action and only `END_TURN` when nothing else is legal. A game that hits the cap fails and reports its seed. The engine has no draw rule. (The cap was 5,000 over M2's 1,000 games; over 10,000 games a few 6-player games run past 9,000, as random play is slow to win when Mask items keep changing classes.)
 
 ### 13.2 Scenario test helper
 

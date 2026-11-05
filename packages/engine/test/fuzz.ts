@@ -7,8 +7,9 @@ import { players } from "./cards.js";
 /**
  * A game that hasn't ended after this many actions fails (TECHNICAL_DESIGN.md §13.1). The engine has no draw rule.
  * PASSes don't count: every roll opens a Modifier Window that every player passes, so they grow with the player count, and a window always closes.
+ * Random play is slow to win with 6 players, as Mask items keep changing classes: over 10,000 games the longest takes over 9,000 actions.
  */
-export const ACTION_CAP = 5_000;
+export const ACTION_CAP = 10_000;
 
 /** The fuzz policy (§13.1): a random legal action, and END_TURN only when nothing else is legal. */
 export function fuzzAction(legal: readonly Action[], rng: RngState): [Action, RngState] {
@@ -80,6 +81,8 @@ export interface FuzzResult {
   actions: number;
   /** The actions that count toward the cap: all but PASSes. */
   counted: number;
+  /** The Challenges and Modifiers played. */
+  responses: number;
   state: GameState;
   /** Why the game failed, naming its seed; null when it reached a win with every invariant holding. */
   failure: string | null;
@@ -100,7 +103,8 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
   let rng = createRng(`fuzz-policy:${seed}`);
   let actions = 0;
   let counted = 0;
-  const fail = (why: string): FuzzResult => ({ seed, actions, counted, state, failure: `seed "${seed}", after ${actions} actions: ${why}` });
+  let responses = 0;
+  const fail = (why: string): FuzzResult => ({ seed, actions, counted, responses, state, failure: `seed "${seed}", after ${actions} actions: ${why}` });
 
   try {
     for (let last: Action | null = null; ; actions++) {
@@ -116,7 +120,7 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
         }
       }
 
-      if (state.phase.kind === "gameOver") return { seed, actions, counted, state, failure: null };
+      if (state.phase.kind === "gameOver") return { seed, actions, counted, responses, state, failure: null };
       if (counted >= cap) return fail(`no winner within ${cap} actions, not counting PASSes`);
       // Outside a Response Window, one player at a time has something to do; in one, everyone it waits on may respond.
       const legal = [...results.keys()];
@@ -126,6 +130,7 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
       if (actors.size > 1 && !responding) return fail(`${[...actors].join(", ")} all have legal actions at once`);
       [last, rng] = fuzzAction(legal, rng);
       if (last.type !== "PASS") counted++;
+      if (last.type === "PLAY_CHALLENGE" || last.type === "PLAY_MODIFIER") responses++;
       state = results.get(last)!.state;
     }
   } catch (error) {
@@ -133,10 +138,10 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
   }
 }
 
-/** M2 acceptance (§14): this many seeded games, every one ending in a win with every invariant holding. */
-export const FUZZ_GAMES = 1_000;
+/** M3 acceptance (§14): this many seeded games, every one ending in a win with every invariant holding. */
+export const FUZZ_GAMES = 10_000;
 /** The games are split over this many test files, fuzz-games-1 to -N, so the test runner plays them in parallel. Change both together. */
-export const FUZZ_SHARDS = 4;
+export const FUZZ_SHARDS = 8;
 
 /**
  * The rules game `i` is played under: rule flags drawn from its own seed, so
@@ -174,13 +179,17 @@ export function describeFuzzShard(shard: number): void {
     it(`${seeds.length} seeded games of 2–6 players each end in a win within ${ACTION_CAP} actions, every invariant holding`, { timeout: 600_000 }, () => {
       const failures: string[] = [];
       const reasons = new Set<string>();
+      let responses = 0;
       for (const i of seeds) {
         // Every player count in every shard.
         const result = fuzzGame(`fuzz-${i}`, 2 + (Math.floor(i / FUZZ_SHARDS) % 5), fuzzConfig(i));
         if (result.failure !== null) failures.push(result.failure);
         else reasons.add(result.state.winReason!);
+        responses += result.responses;
       }
       expect(failures).toEqual([]);
+      // The policy picks Challenges and Modifiers like any other legal action, so the Response Windows were played through, not just passed.
+      expect(responses).toBeGreaterThan(0);
       // Random play reaches both kinds of win, so neither went untested.
       expect([...reasons].sort()).toEqual(["classes", "monsters"]);
     });

@@ -103,6 +103,9 @@ export function createGame(opts: CreateGameOptions): GameState {
   };
   // createGame reports no events: the opening view shows everything they would.
   continueSetup(new Map(cardDefs.map((d) => [d.id, d])), state, []);
+  // Fixed for the rest of the game, so every later state shares them (`cloneState`).
+  Object.freeze(state.cards);
+  Object.freeze(state.config);
   return state;
 }
 
