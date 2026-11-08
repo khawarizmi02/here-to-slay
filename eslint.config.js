@@ -52,8 +52,32 @@ const roomIsolation = {
   ],
 };
 
+/**
+ * The client's layers: only the composition root touches the Room, and
+ * only the toy layer knows the toy engine, so moving to the real engine
+ * replaces the toy layer and nothing else. The shell knows no engine at all.
+ */
+const roomOnlyInRoot = {
+  paths: [{ name: "@here-to-slay/room", allowTypeImports: true, message: "Only the composition root (src/root) touches the Room." }],
+};
+const clientLayers = {
+  "@typescript-eslint/no-restricted-imports": ["error", roomOnlyInRoot],
+};
+const shellLayer = {
+  "@typescript-eslint/no-restricted-imports": [
+    "error",
+    {
+      ...roomOnlyInRoot,
+      patterns: [
+        { group: ["@here-to-slay/toy-engine", "@here-to-slay/engine", "@here-to-slay/cards"], message: "The shell is engine-agnostic." },
+        { group: ["../toy", "../toy/*", "../root", "../root/*"], message: "The shell is engine-agnostic: the composition root hands it the game layer." },
+      ],
+    },
+  ],
+};
+
 export default tseslint.config(
-  { ignores: ["**/node_modules/**", "**/dist/**", "**/coverage/**", "**/.wrangler/**"] },
+  { ignores: ["**/node_modules/**", "**/dist/**", "**/coverage/**", "**/.wrangler/**", "**/test-results/**", "**/playwright-report/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -66,5 +90,18 @@ export default tseslint.config(
   {
     files: ["packages/room/src/**/*.ts"],
     rules: roomIsolation,
+  },
+  {
+    files: ["packages/client/**/*.{ts,tsx}"],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+  {
+    files: ["packages/client/src/**/*.{ts,tsx}"],
+    ignores: ["packages/client/src/root/**", "packages/client/src/shell/**"],
+    rules: clientLayers,
+  },
+  {
+    files: ["packages/client/src/shell/**/*.{ts,tsx}"],
+    rules: shellLayer,
   },
 );

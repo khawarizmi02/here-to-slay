@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "tsc -b",
+    "e2e": "pnpm --filter @here-to-slay/client e2e",
     "ci": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {

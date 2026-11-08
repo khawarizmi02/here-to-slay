@@ -227,6 +227,23 @@ describe("hidden information", () => {
     expect(JSON.stringify(getPlayerEvents(events, "p2"))).not.toContain(start.deck[0]!.id);
   });
 
+  it("a view carries the viewer's legal actions, and none for a spectator", () => {
+    const start = createGame({ players: twoPlayers, seed: "legal", config: { handSize: 2 }, deckOrder: ["point_1", "challenge", "point_2", "modifier", "point_3"] });
+    expect(getPlayerView(start, "p1").legalActions).toEqual([
+      { type: "DRAW_CARD", player: "p1" },
+      { type: "PLAY_HERO", player: "p1", card: "point_1#0" },
+    ]);
+    expect(getPlayerView(start, "p2").legalActions).toEqual([]);
+    expect(getPlayerView(start, "spectator").legalActions).toEqual([]);
+
+    const { state } = run(start, [{ type: "PLAY_HERO", player: "p1", card: "point_1#0" }]);
+    expect(getPlayerView(state, "p2").legalActions).toEqual([
+      { type: "PASS", player: "p2" },
+      { type: "PLAY_MODIFIER", player: "p2", card: "modifier#0", value: 1 },
+    ]);
+    expect(getPlayerView(state, "spectator").legalActions).toEqual([]);
+  });
+
   it("views are copies: changing one doesn't change the game", () => {
     const state = createGame({ players: twoPlayers, seed: "copy" });
     const snapshot = JSON.parse(JSON.stringify(state)) as GameState;
