@@ -8,27 +8,7 @@ import { LocalConnection, Room, type GameConnection, type RoomEngine, type RoomO
 // ---------------------------------------------------------------------------
 
 /** The toy engine behind the Room's engine interface. Config values must be positive integers. */
-export const toyEngine: RoomEngine<toy.GameState> = {
-  cardDefsVersion: "toy-2",
-  createGame({ players, seed, config }) {
-    const parsed: Partial<toy.ToyConfig> = {};
-    for (const [key, value] of Object.entries(config)) {
-      // A Room setting, not a rule the toy engine knows.
-      if (key === "responseWindowMs") continue;
-      if (key !== "targetScore" && key !== "handSize") throw new Error(`Unknown config flag ${key}`);
-      if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
-        throw new Error(`${key} must be a positive integer`);
-      }
-      parsed[key] = value;
-    }
-    return toy.createGame({ players, seed, config: parsed });
-  },
-  applyAction: toy.applyAction,
-  getLegalActions: toy.getLegalActions,
-  getActivePlayer: (state) => state.activePlayer,
-  getPlayerView: (state, player) => toy.getPlayerView(state, player) as unknown as Record<string, unknown>,
-  getPlayerEvents: toy.getPlayerEvents,
-};
+export const toyEngine: RoomEngine<toy.GameState> = toy.toyRoomEngine;
 
 /** The toy engine dealing a fixed deck, top card first: `handSize` cards to each Seat in Seat order. */
 export function fixedDeck(deckOrder: toy.ToyCardDefId[]): RoomEngine<toy.GameState> {

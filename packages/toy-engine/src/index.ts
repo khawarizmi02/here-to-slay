@@ -5,5 +5,6 @@
  * a pending decision, and a reachable game over.
  */
 export { createGame, getLegalActions, applyAction, getPlayerView, getPlayerEvents } from "./engine.js";
+export { toyRoomEngine } from "./room-engine.js";
 export { createRng, nextFloat, shuffle, type RngState } from "./rng.js";
 export * from "./types.js";

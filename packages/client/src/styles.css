@@ -1,0 +1,60 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  padding: 16px;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+button {
+  font: inherit;
+  padding: 6px 12px;
+}
+
+.hand,
+.response-bar,
+.decision {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.response-bar,
+.decision {
+  padding: 8px;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+}
+
+.decision h3 {
+  margin: 0;
+  width: 100%;
+}
+
+.error {
+  color: #c62828;
+  text-align: center;
+}
+
+.scores th {
+  text-align: left;
+  padding-right: 12px;
+}
