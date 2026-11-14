@@ -49,6 +49,6 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
     case "resuming":
       return <p>Resuming your game…</p>;
     case "device":
-      return <SeatScreen device={screen.device} Game={game.Board} onLeave={leave} onGameOver={pointers.clear} />;
+      return <SeatScreen device={screen.device} game={game} onLeave={leave} onGameOver={pointers.clear} />;
   }
 }

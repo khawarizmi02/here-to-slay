@@ -23,7 +23,7 @@ export function browserLauncher(): Launcher {
   return {
     playOnThisDevice(name) {
       // "Play on this device" never contacts the relay: the Room makes up its own Room Code.
-      return onThisDevice(new Room({ ...roomOptions, hostName: name }), { name });
+      return onThisDevice(new Room({ ...roomOptions, hostName: name }), { name, host: true });
     },
 
     async resume(pointer) {
@@ -31,13 +31,13 @@ export function browserLauncher(): Launcher {
       const record = await roomOptions.store.load(pointer.roomCode);
       if (!record) {
         // The Room saves nothing before startGame: a refresh in the lobby rebuilds an empty lobby under the same Room Code.
-        return onThisDevice(new Room({ ...roomOptions, hostName: pointer.name, roomCode: pointer.roomCode }), { name: pointer.name });
+        return onThisDevice(new Room({ ...roomOptions, hostName: pointer.name, roomCode: pointer.roomCode }), { name: pointer.name, host: true });
       }
       // The Host's Seat is always the record's first; a game under way sends no lobby to say so.
-      const [host, ...others] = record.seats;
+      const [hostSeat, ...others] = record.seats;
       return onThisDevice(
         Room.restore(roomOptions, record),
-        { name: host!.name, seatId: host!.id },
+        { name: hostSeat!.name, host: true, seatId: hostSeat!.id },
         others.filter((s) => s.kind === "local"),
       );
     },

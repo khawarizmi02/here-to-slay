@@ -1,8 +1,11 @@
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ALICE, BOT, renderClient, renderInLobby } from "./render.js";
+import { FakeConnection } from "./fake-connection.js";
+import { ALICE, BOT, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
+
+const FRIEND = { mode: "online", role: "friend", roomCode: "ABCDE", name: "Bob" } as const;
 
 describe("the first screen", () => {
   it("offers all three choices, with only Play on this device built so far", () => {
@@ -39,6 +42,43 @@ describe("the lobby", () => {
   it("shows no Room Code for a game on this device", async () => {
     await renderInLobby();
     expect(screen.queryByText(/ABCDE/)).toBeNull();
+  });
+
+  it("lets the Host set the target score and hand size, starting from the toy's defaults", async () => {
+    const { connection, user } = await renderInLobby();
+    const target = screen.getByLabelText("Target score");
+    const handSize = screen.getByLabelText("Hand size");
+    expect(target).toHaveValue(5);
+    expect(handSize).toHaveValue(3);
+
+    await user.clear(target);
+    await user.type(target, "8");
+    await user.clear(handSize);
+    await user.type(handSize, "4");
+    expect(connection.takeSent()).toEqual([
+      { t: "setConfig", config: { targetScore: 8 } },
+      { t: "setConfig", config: { handSize: 4 } },
+    ]);
+  });
+
+  it("sends no rule the toy engine would refuse", async () => {
+    const { connection, user } = await renderInLobby();
+    const target = screen.getByLabelText("Target score");
+    await user.clear(target);
+    await user.type(target, "0");
+    expect(connection.takeSent()).toEqual([]);
+  });
+
+  it("shows the Host's controls to no other Seat", async () => {
+    // A Seat that isn't the Host's, as a friend's device will hold.
+    const connection = new FakeConnection();
+    renderClient({ pointer: FRIEND, resume: () => Promise.resolve(fakeRoom([{ connection, name: "Bob" }])) });
+    await screen.findByText("Connecting…");
+    connection.receive({ t: "lobby", roomCode: "ABCDE", seats: [ALICE, BOT], you: ["s2"] });
+    expect(screen.getByText("Lobby")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Target score")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start game" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a bot" })).toBeNull();
   });
 
   it("shows the Room's error when it refuses a lobby command", async () => {

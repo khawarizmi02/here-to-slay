@@ -1,14 +1,25 @@
 import type { LobbySeat } from "@here-to-slay/protocol";
-import { useState, type FormEvent } from "react";
+import { useState, type ComponentType, type FormEvent } from "react";
+import type { RulesProps } from "./game.js";
 
-/** The Seats so far, and the Host's controls. An offline Room shows no Room Code: nobody can use it. */
+/**
+ * The Seats so far, and, for the Host only, the controls: the game layer's
+ * rules, adding Seats and starting. An offline Room shows no Room Code:
+ * nobody can use it.
+ */
 export function Lobby({
   seats,
+  host,
+  Rules,
+  onSetConfig,
   onAddPlayer,
   onAddBot,
   onStart,
 }: {
   seats: LobbySeat[];
+  host: boolean;
+  Rules: ComponentType<RulesProps>;
+  onSetConfig: RulesProps["setConfig"];
   onAddPlayer: (name: string) => void;
   onAddBot: () => void;
   onStart: () => void;
@@ -33,21 +44,26 @@ export function Lobby({
           </li>
         ))}
       </ul>
-      <form onSubmit={addPlayer}>
-        <label>
-          Player name
-          <input value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <button type="submit" disabled={!trimmed}>
-          Add a player on this device
-        </button>
-      </form>
-      <button type="button" onClick={onAddBot}>
-        Add a bot
-      </button>
-      <button type="button" onClick={onStart}>
-        Start game
-      </button>
+      {host && (
+        <>
+          <Rules setConfig={onSetConfig} />
+          <form onSubmit={addPlayer}>
+            <label>
+              Player name
+              <input value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <button type="submit" disabled={!trimmed}>
+              Add a player on this device
+            </button>
+          </form>
+          <button type="button" onClick={onAddBot}>
+            Add a bot
+          </button>
+          <button type="button" onClick={onStart}>
+            Start game
+          </button>
+        </>
+      )}
     </main>
   );
 }

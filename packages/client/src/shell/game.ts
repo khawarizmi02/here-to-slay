@@ -1,4 +1,4 @@
-import type { Action, PlayerViewPayload, RoomCode, SeatId } from "@here-to-slay/protocol";
+import type { Action, ConfigPatch, GameEvent, PlayerViewPayload, RoomCode, SeatId } from "@here-to-slay/protocol";
 import type { GameConnection } from "@here-to-slay/room";
 import type { ComponentType } from "react";
 import type { RoomPointer } from "./pointer.js";
@@ -10,6 +10,8 @@ import type { RoomPointer } from "./pointer.js";
  */
 export interface GameProps {
   view: PlayerViewPayload;
+  /** The events of every update so far, oldest first, filtered for this Seat. */
+  log: GameEvent[];
   /** Response options from the Room's `respond`, or null when the Room isn't asking this Seat. */
   responseOptions: Action[] | null;
   act(action: Action): void;
@@ -19,9 +21,17 @@ export interface GameProps {
 
 export type GameComponent = ComponentType<GameProps>;
 
+/** What the shell hands the game layer's rules form in the lobby, shown only to the Host. */
+export interface RulesProps {
+  /** Overrides the rules named in `config`; the Room keeps the rest. */
+  setConfig(config: ConfigPatch): void;
+}
+
 /** Everything the shell needs from the layer that knows the engine. */
 export interface GameLayer {
   Board: GameComponent;
+  /** The Host's rules form for the lobby. */
+  Rules: ComponentType<RulesProps>;
   /**
    * The Seat the game waits on for a turn action or a decision, read from
    * any Seat's view (the Room uses Seat ids as player ids). Null when it
@@ -35,6 +45,8 @@ export interface LaunchedSeat {
   connection: GameConnection;
   /** The player's name, for the Pass-Device Step. */
   name: string;
+  /** The Host's own Seat: only it is offered the lobby's Host controls. */
+  host?: boolean;
   /**
    * The Seat, when the Room won't send a lobby to say: a game already under
    * way sends only updates. Otherwise the lobby names it.

@@ -23,6 +23,24 @@ test("one player beats a bot, or loses to it, on this device", async ({ page }) 
   await expect(gameOver(page)).toHaveText(/^(Alice|Bot 1) wins!$/);
 });
 
+test("the Host's rules set the game: hand size and target score", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Your name").fill("Alice");
+  await page.getByRole("button", { name: "Play on this device" }).click();
+  await page.getByLabel("Hand size").fill("5");
+  await page.getByLabel("Target score").fill("1");
+  await page.getByRole("button", { name: "Add a bot" }).click();
+  await expect(page.getByRole("listitem")).toHaveCount(2);
+  await page.getByRole("button", { name: "Start game" }).click();
+
+  await expect(page.getByRole("region", { name: "Your hand" }).getByRole("button")).toHaveCount(5);
+  for (let step = 0; step < 200 && !(await gameOver(page).isVisible()); step++) await takeOneAction(page);
+  await expect(gameOver(page)).toBeVisible();
+  // A target of 1 ends the game on the first score.
+  await page.getByText("Game log").click();
+  await expect(page.getByRole("list", { name: "Game log" }).getByText(/ scored /)).toHaveCount(1);
+});
+
 async function takeOneAction(page: Page): Promise<void> {
   const pass = page.getByRole("region", { name: "Respond" }).getByRole("button", { name: "Pass" });
   const decision = page.getByRole("dialog").getByRole("button").first();

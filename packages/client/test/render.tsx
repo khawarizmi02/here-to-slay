@@ -30,18 +30,18 @@ export function fakeRoom(seats: LaunchedSeat[], roomCode = "ABCDE"): LaunchedRoo
 /** The whole client, shell and toy layer, with fake connections where the composition root's Room would be. */
 export function renderClient({ pointer = null, resume }: { pointer?: RoomPointer | null; resume?: Launcher["resume"] } = {}) {
   const connection = new FakeConnection();
-  let room = fakeRoom([{ connection, name: "Alice" }]);
+  let room = fakeRoom([{ connection, name: "Alice", host: true }]);
   const launched: string[] = [];
   const resumed: RoomPointer[] = [];
   const launcher: Launcher = {
     playOnThisDevice(name) {
       launched.push(name);
-      room = fakeRoom([{ connection, name }]);
+      room = fakeRoom([{ connection, name, host: true }]);
       return room;
     },
     resume(p) {
       resumed.push(p);
-      return resume ? resume(p) : Promise.resolve(fakeRoom([{ connection, name: p.name }], p.roomCode));
+      return resume ? resume(p) : Promise.resolve(fakeRoom([{ connection, name: p.name, host: true }], p.roomCode));
     },
   };
   const pointers = memoryPointerStore(pointer);
