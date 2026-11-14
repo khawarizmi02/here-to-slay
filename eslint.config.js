@@ -53,17 +53,28 @@ const roomIsolation = {
 };
 
 /**
- * The client's layers: only the composition root touches the Room, and
- * only the toy layer knows the toy engine, so moving to the real engine
- * replaces the toy layer and nothing else. The shell knows no engine at all.
+ * The client's layers: only the composition root touches the Room and the
+ * relay, and only the toy layer knows the toy engine, so moving to the real
+ * engine replaces the toy layer and nothing else. The shell knows no engine at all.
  */
 const roomOnlyInRoot = {
-  paths: [{ name: "@here-to-slay/room", allowTypeImports: true, message: "Only the composition root (src/root) touches the Room." }],
+  paths: [
+    { name: "@here-to-slay/room", allowTypeImports: true, message: "Only the composition root (src/root) touches the Room." },
+    { name: "@here-to-slay/relay", message: "Only the composition root (src/root) reaches the relay." },
+  ],
+};
+const relayOnlyInRoot = {
+  "no-restricted-globals": [
+    "error",
+    ...["WebSocket", "fetch"].map((name) => ({ name, message: "Only the composition root (src/root) reaches the relay." })),
+  ],
 };
 const clientLayers = {
   "@typescript-eslint/no-restricted-imports": ["error", roomOnlyInRoot],
+  ...relayOnlyInRoot,
 };
 const shellLayer = {
+  ...relayOnlyInRoot,
   "@typescript-eslint/no-restricted-imports": [
     "error",
     {

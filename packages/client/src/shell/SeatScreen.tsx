@@ -20,13 +20,14 @@ export function SeatScreen({
   onGameOver: () => void;
 }) {
   const { onScreen: seat, passTo } = useStore(device.store);
-  const { lobby, view, log, responseOptions, error } = useStore(seat.store);
+  const { lobby, view, log, responseOptions, deadline, error } = useStore(seat.store);
   return (
     <>
       <header className="room-bar">
         <button type="button" onClick={onLeave}>
           Leave Room
         </button>
+        {device.hosting && <p className="hosting-notice">Keep this tab open: you are hosting</p>}
       </header>
       {passTo ? (
         <PassDeviceStep name={passTo.name} onConfirm={device.confirmPass} />
@@ -38,10 +39,18 @@ export function SeatScreen({
             </p>
           )}
           {view ? (
-            <game.Board view={view} log={log} responseOptions={responseOptions} act={seat.act} onGameOver={onGameOver} />
+            <game.Board
+              view={view}
+              log={log}
+              responseOptions={seat.remote ? game.responseOptions(view) : responseOptions}
+              deadline={deadline}
+              act={seat.act}
+              onGameOver={onGameOver}
+            />
           ) : lobby ? (
             <Lobby
               seats={lobby}
+              roomCode={device.roomCode}
               host={seat.host}
               Rules={game.Rules}
               onSetConfig={seat.setConfig}

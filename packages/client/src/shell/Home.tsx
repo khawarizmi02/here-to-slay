@@ -1,13 +1,33 @@
 import { useState, type FormEvent } from "react";
 
-/** The first screen (TECHNICAL_DESIGN.md §12.3). Hosting and joining online aren't built yet. */
-export function Home({ message, onPlayOnThisDevice }: { message?: string | undefined; onPlayOnThisDevice: (name: string) => void }) {
+/**
+ * The first screen (TECHNICAL_DESIGN.md §12.3): play here, host a Room
+ * friends join through the relay, or join one with its Room Code.
+ */
+export function Home({
+  message,
+  onPlayOnThisDevice,
+  onHostOnline,
+  onJoin,
+}: {
+  message?: string | undefined;
+  onPlayOnThisDevice: (name: string) => void;
+  onHostOnline: (name: string) => void;
+  /** `roomCode` as the player typed it: the launcher forgives case and stray spaces. */
+  onJoin: (roomCode: string, name: string) => void;
+}) {
   const [name, setName] = useState("Player 1");
+  const [roomCode, setRoomCode] = useState("");
   const trimmed = name.trim();
 
   function submit(e: FormEvent) {
     e.preventDefault();
     if (trimmed) onPlayOnThisDevice(trimmed);
+  }
+
+  function join(e: FormEvent) {
+    e.preventDefault();
+    if (trimmed && roomCode.trim()) onJoin(roomCode, trimmed);
   }
 
   return (
@@ -26,10 +46,16 @@ export function Home({ message, onPlayOnThisDevice }: { message?: string | undef
         <button type="submit" disabled={!trimmed}>
           Play on this device
         </button>
-        <button type="button" disabled>
+        <button type="button" disabled={!trimmed} onClick={() => onHostOnline(trimmed)}>
           Host online
         </button>
-        <button type="button" disabled>
+      </form>
+      <form onSubmit={join}>
+        <label>
+          Room Code
+          <input value={roomCode} maxLength={16} autoCapitalize="characters" onChange={(e) => setRoomCode(e.target.value)} />
+        </label>
+        <button type="submit" disabled={!trimmed || !roomCode.trim()}>
           Join with a Room Code
         </button>
       </form>

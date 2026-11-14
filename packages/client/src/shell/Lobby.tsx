@@ -4,11 +4,12 @@ import type { RulesProps } from "./game.js";
 
 /**
  * The Seats so far, and, for the Host only, the controls: the game layer's
- * rules, adding Seats and starting. An offline Room shows no Room Code:
- * nobody can use it.
+ * rules, adding Seats and starting. Only a Room friends can join shows its
+ * Room Code: nobody can use an offline Room's.
  */
 export function Lobby({
   seats,
+  roomCode,
   host,
   Rules,
   onSetConfig,
@@ -17,6 +18,7 @@ export function Lobby({
   onStart,
 }: {
   seats: LobbySeat[];
+  roomCode: string | null;
   host: boolean;
   Rules: ComponentType<RulesProps>;
   onSetConfig: RulesProps["setConfig"];
@@ -37,6 +39,11 @@ export function Lobby({
   return (
     <main className="lobby">
       <h2>Lobby</h2>
+      {roomCode && (
+        <p>
+          Room Code <strong className="room-code">{roomCode}</strong>
+        </p>
+      )}
       <ul>
         {seats.map((s) => (
           <li key={s.id}>

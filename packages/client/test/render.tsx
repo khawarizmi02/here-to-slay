@@ -28,16 +28,34 @@ export function fakeRoom(seats: LaunchedSeat[], roomCode = "ABCDE"): LaunchedRoo
 }
 
 /** The whole client, shell and toy layer, with fake connections where the composition root's Room would be. */
-export function renderClient({ pointer = null, resume }: { pointer?: RoomPointer | null; resume?: Launcher["resume"] } = {}) {
+export function renderClient({
+  pointer = null,
+  resume,
+  hostOnline,
+  join,
+}: { pointer?: RoomPointer | null; resume?: Launcher["resume"]; hostOnline?: Launcher["hostOnline"]; join?: Launcher["join"] } = {}) {
   const connection = new FakeConnection();
   let room = fakeRoom([{ connection, name: "Alice", host: true }]);
   const launched: string[] = [];
+  const hosted: string[] = [];
+  const joined: { roomCode: string; name: string }[] = [];
   const resumed: RoomPointer[] = [];
   const launcher: Launcher = {
     playOnThisDevice(name) {
       launched.push(name);
       room = fakeRoom([{ connection, name, host: true }]);
       return room;
+    },
+    hostOnline(name) {
+      hosted.push(name);
+      if (hostOnline) return hostOnline(name);
+      room = { ...fakeRoom([{ connection, name, host: true }], "HJK23"), online: { token: "host-token" } };
+      return Promise.resolve(room);
+    },
+    join(roomCode, name) {
+      joined.push({ roomCode, name });
+      if (join) return join(roomCode, name);
+      return Promise.resolve({ ...fakeRoom([{ connection, name, remote: true }], roomCode.trim().toUpperCase()), online: { token: "seat-token" } });
     },
     resume(p) {
       resumed.push(p);
@@ -50,6 +68,8 @@ export function renderClient({ pointer = null, resume }: { pointer?: RoomPointer
   return {
     connection,
     launched,
+    hosted,
+    joined,
     resumed,
     pointers,
     user,
