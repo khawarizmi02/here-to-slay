@@ -2,7 +2,7 @@ import * as toy from "@here-to-slay/toy-engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FakeConnection } from "./fake-connection.js";
-import { ALICE, BOT, renderClient, renderInLobby } from "./render.js";
+import { ALICE, BOT, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
 
@@ -36,7 +36,7 @@ describe("loading with a pointer", () => {
 
   it("goes straight back into the game, acting from the Seat the Room was resumed with", async () => {
     const connection = new FakeConnection();
-    const { resumed } = renderClient({ pointer, resume: () => Promise.resolve({ connection, roomCode: "ABCDE", seatId: "s1" }) });
+    const { resumed } = renderClient({ pointer, resume: () => Promise.resolve(fakeRoom([{ connection, name: "Alice", seatId: "s1" }])) });
     expect(screen.queryByRole("button", { name: "Play on this device" })).toBeNull();
     expect(resumed).toEqual([pointer]);
 
