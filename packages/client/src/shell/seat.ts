@@ -29,9 +29,10 @@ export interface DeviceSeat {
  * Wraps one Seat's connection. `soleLocalSeat` is true when the device has
  * no other local Seat: the Pass-Device Step would pass the device to the
  * same person, so the Seat confirms it has the device straight away.
+ * `seatId` is for a game already under way, where no lobby will name the Seat.
  */
-export function connectSeat(connection: GameConnection, { soleLocalSeat }: { soleLocalSeat: boolean }): DeviceSeat {
-  const store = createStore<SeatState>()(() => ({ seatId: null, lobby: null, view: null, responseOptions: null, error: null }));
+export function connectSeat(connection: GameConnection, { soleLocalSeat, seatId }: { soleLocalSeat: boolean; seatId?: SeatId | undefined }): DeviceSeat {
+  const store = createStore<SeatState>()(() => ({ seatId: seatId ?? null, lobby: null, view: null, responseOptions: null, error: null }));
   let clientSeq = 0;
   const send = (msg: ClientMsg) => connection.send(msg);
 
