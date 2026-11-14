@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { connectDevice, type Device } from "./device.js";
-import type { GameLayer, LaunchedRoom, Launcher } from "./game.js";
+import { RoomClosedError, type GameLayer, type LaunchedRoom, type Launcher } from "./game.js";
 import { Home } from "./Home.js";
 import type { PointerStore, RoomPointer } from "./pointer.js";
 import { SeatScreen } from "./SeatScreen.js";
@@ -11,9 +11,13 @@ type Screen =
   | { kind: "connecting" }
   | { kind: "device"; device: Device };
 
+const ROOM_CLOSED = "That Room has closed.";
+
 /**
  * On load, a device with a Room pointer goes straight back into that Room,
- * with no prompt. Otherwise it starts on the first screen.
+ * with no prompt. Otherwise it starts on the first screen, where it also
+ * lands, pointing nowhere, when its Room closes. An online Room it can't
+ * reach stays pointed at, until a new Room replaces it.
  */
 export function App({ launcher, pointers, game }: { launcher: Launcher; pointers: PointerStore; game: GameLayer }) {
   const [screen, setScreen] = useState<Screen>(() => {
@@ -21,16 +25,38 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
     return pointer ? { kind: "resuming", pointer } : { kind: "home" };
   });
   const device = screen.kind === "device" ? screen.device : null;
+  /** The Room has gone: nothing is left to resume. */
+  const closed = () => {
+    pointers.clear();
+    setScreen({ kind: "home", message: ROOM_CLOSED });
+  };
   useEffect(() => () => device?.close(), [device]);
-  const enter = (room: LaunchedRoom) => setScreen({ kind: "device", device: connectDevice(room, game.seatToAct) });
+  useEffect(
+    () =>
+      device?.store.subscribe(({ roomClosed }) => {
+        if (roomClosed) closed();
+      }),
+    [device, pointers],
+  );
+  const enter = (room: LaunchedRoom) => setScreen({ kind: "device", device: connectDevice(room, game) });
 
   // Resuming builds a Room, so it must happen once: StrictMode runs effects twice, but keeps refs.
   const resumeStarted = useRef(false);
   useEffect(() => {
     if (screen.kind !== "resuming" || resumeStarted.current) return;
     resumeStarted.current = true;
-    launcher.resume(screen.pointer).then(enter, (e: unknown) => {
+    const { pointer } = screen;
+    launcher.resume(pointer).then(enter, (e: unknown) => {
+      if (e instanceof RoomClosedError) {
+        closed();
+        return;
+      }
       console.error("Couldn't resume the game", e);
+      if (pointer.mode === "online") {
+        // Most likely the relay can't be reached: the Room may well still be there, so a later load tries again.
+        setScreen({ kind: "home", message: "Couldn't reach your Room. Reload to try again." });
+        return;
+      }
       pointers.clear();
       setScreen({ kind: "home", message: "Your game couldn't be resumed." });
     });

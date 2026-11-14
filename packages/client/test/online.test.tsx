@@ -2,7 +2,8 @@ import "@testing-library/jest-dom/vitest";
 import * as toy from "@here-to-slay/toy-engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ALICE, renderClient } from "./render.js";
+import { FakeConnection } from "./fake-connection.js";
+import { ALICE, fakeRoom, renderClient } from "./render.js";
 
 const BOB = { id: "s2", name: "Bob", kind: "remote", connected: true } as const;
 
@@ -116,5 +117,46 @@ describe("a friend in a response window", () => {
 
     connection.receive({ t: "update", version: 3, events: [], view: bobAskedToRespond() });
     expect(screen.queryByRole("timer")).toBeNull();
+  });
+});
+
+describe("a friend back from a refresh mid-game", () => {
+  it("acts from their Seat, which only the view names: a game under way sends no lobby", async () => {
+    const pointer = { mode: "online", role: "friend", roomCode: "HJK23", name: "Bob", token: "seat-token" } as const;
+    const connection = new FakeConnection();
+    const { user } = renderClient({ pointer, resume: () => Promise.resolve(fakeRoom([{ connection, name: "Bob", remote: true }], "HJK23")) });
+    await screen.findByText("Connecting…");
+
+    connection.receive({ t: "update", version: 2, events: [], view: bobAskedToRespond() });
+    await user.click(within(screen.getByRole("region", { name: "Respond" })).getByRole("button", { name: "Pass" }));
+    expect(connection.takeSent()).toEqual([{ t: "action", seat: "s2", action: { type: "PASS", player: "s2" }, clientSeq: 0 }]);
+  });
+});
+
+describe("while the Host is away", () => {
+  it("shows the friend Waiting for Host… over the board, until the Host is back", async () => {
+    const { connection } = await join("HJK23");
+    connection.receive({ t: "lobby", roomCode: "HJK23", seats: [ALICE, BOB], you: ["s2"] });
+    connection.receive({ t: "update", version: 2, events: [], view: bobAskedToRespond() });
+
+    connection.receive({ t: "hostAway" });
+    expect(screen.getByRole("status")).toHaveTextContent("Waiting for Host…");
+    expect(screen.getByRole("region", { name: "Respond" })).toBeInTheDocument();
+
+    connection.receive({ t: "hostBack" });
+    expect(screen.queryByText("Waiting for Host…")).toBeNull();
+  });
+});
+
+describe("a Room that closes", () => {
+  it("lands the player on the first screen with a message, and the next load doesn't resume it", async () => {
+    const { connection, pointers } = await join("HJK23");
+    connection.receive({ t: "lobby", roomCode: "HJK23", seats: [ALICE, BOB], you: ["s2"] });
+
+    connection.receive({ t: "roomClosed" });
+    expect(screen.getByRole("alert")).toHaveTextContent("That Room has closed");
+    expect(screen.getByRole("button", { name: "Join with a Room Code" })).toBeVisible();
+    expect(connection.closed).toBe(true);
+    expect(pointers.load()).toBeNull();
   });
 });

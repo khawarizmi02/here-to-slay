@@ -21,6 +21,10 @@ export const toyGame: GameLayer = {
     if (view.phase === "decision") return view.pendingDecision?.player ?? null;
     return view.phase === "action" ? view.activePlayer : null;
   },
+  viewer(payload) {
+    const { me } = payload as unknown as PlayerView;
+    return me === "spectator" ? null : me;
+  },
   responseOptions(payload) {
     const view = payload as unknown as PlayerView;
     // The engine offers a Seat responses only while the window awaits it.

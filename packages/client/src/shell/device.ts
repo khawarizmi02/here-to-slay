@@ -1,6 +1,6 @@
-import type { PlayerViewPayload, RoomCode, SeatId } from "@here-to-slay/protocol";
+import type { RoomCode, SeatId } from "@here-to-slay/protocol";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { LaunchedRoom } from "./game.js";
+import type { GameLayer, LaunchedRoom, LaunchedSeat } from "./game.js";
 import { connectSeat, type DeviceSeat } from "./seat.js";
 
 /** Which of this device's Seats is on screen, and whether the screen is hidden while the device changes hands. */
@@ -11,6 +11,8 @@ export interface DeviceState {
   onScreen: DeviceSeat;
   /** The Pass-Device Step: every hand is hidden until the player of this Seat says they have the device. */
   passTo: DeviceSeat | null;
+  /** Whether the Room has closed, such as when its Host was away too long. */
+  roomClosed: boolean;
 }
 
 /** Every local Seat on this device, one connection each, shown one at a time. */
@@ -32,9 +34,10 @@ export interface Device {
  * the game starts waiting on one of its Seats, that Seat's player is asked
  * for. With one local Seat there is nobody to pass to, so the step never shows.
  */
-export function connectDevice(room: LaunchedRoom, seatToAct: (view: PlayerViewPayload) => SeatId | null): Device {
-  const first = connectSeat(room.seats[0]!);
-  const store = createStore<DeviceState>()(() => ({ seats: [first, ...room.seats.slice(1).map(connectSeat)], onScreen: first, passTo: null }));
+export function connectDevice(room: LaunchedRoom, { seatToAct, viewer }: Pick<GameLayer, "seatToAct" | "viewer">): Device {
+  const connect = (launched: LaunchedSeat) => connectSeat(launched, viewer);
+  const first = connect(room.seats[0]!);
+  const store = createStore<DeviceState>()(() => ({ seats: [first, ...room.seats.slice(1).map(connect)], onScreen: first, passTo: null, roomClosed: false }));
   /** The Seat the game last waited on, from the latest update. */
   let toAct: SeatId | null = null;
   /** Whether the Room asked for the step on show: confirming it then tells the Room. */
@@ -53,6 +56,7 @@ export function connectDevice(room: LaunchedRoom, seatToAct: (view: PlayerViewPa
   function listen(seat: DeviceSeat): void {
     seat.listen({
       passDevice: () => askFor(seat, true),
+      roomClosed: () => store.setState({ roomClosed: true }),
       update(view) {
         // Every Seat gets the same update: only the first to report a change acts on it.
         const next = seatToAct(view);
@@ -67,7 +71,7 @@ export function connectDevice(room: LaunchedRoom, seatToAct: (view: PlayerViewPa
   // Every Seat is in the list before any listens, so a message waiting on the first knows how many there are.
   for (const seat of store.getState().seats) listen(seat);
   const stopAdding = room.onSeatAdded((launched) => {
-    const seat = connectSeat(launched);
+    const seat = connect(launched);
     store.setState((s) => ({ seats: [...s.seats, seat] }));
     listen(seat);
   });

@@ -4,7 +4,7 @@ import type { LaunchedSeat } from "./game.js";
 
 /** What one Seat on this device knows, built only from the messages its connection receives. */
 export interface SeatState {
-  /** The Seat this connection belongs to, once the Room has said. */
+  /** The Seat this connection belongs to, once a lobby or a view has said. */
   seatId: SeatId | null;
   /** The lobby's Seats, until the game starts. */
   lobby: LobbySeat[] | null;
@@ -18,6 +18,8 @@ export interface SeatState {
   deadline: number | null;
   /** The Room's latest refusal, cleared by the next lobby or update, or when the player asks for something else. */
   error: string | null;
+  /** Whether the relay says the Host is away: nothing happens until it is back. */
+  hostAway: boolean;
 }
 
 /** What the device hears from one of its Seats. */
@@ -26,6 +28,8 @@ export interface SeatListener {
   passDevice(): void;
   /** The Seat has a new view. */
   update(view: PlayerViewPayload): void;
+  /** The Room has closed: nothing more will come. */
+  roomClosed(): void;
 }
 
 /** One Seat on this device: its state, and everything it can ask of the Room. */
@@ -51,8 +55,11 @@ export interface DeviceSeat {
   close(): void;
 }
 
-/** Wraps one local Seat's connection. */
-export function connectSeat({ connection, name, host = false, seatId, remote = false }: LaunchedSeat): DeviceSeat {
+/** Wraps one local Seat's connection. `viewer` names the Seat a view belongs to. */
+export function connectSeat(
+  { connection, name, host = false, seatId, remote = false }: LaunchedSeat,
+  viewer: (view: PlayerViewPayload) => SeatId | null,
+): DeviceSeat {
   const store = createStore<SeatState>()(() => ({
     seatId: seatId ?? null,
     lobby: null,
@@ -61,6 +68,7 @@ export function connectSeat({ connection, name, host = false, seatId, remote = f
     responseOptions: null,
     deadline: null,
     error: null,
+    hostAway: false,
   }));
   let clientSeq = 0;
   let unsubscribe = () => {};
@@ -80,7 +88,14 @@ export function connectSeat({ connection, name, host = false, seatId, remote = f
         store.setState({ seatId: msg.you[0] ?? null, lobby: msg.seats, error: null });
         return;
       case "update":
-        store.setState((s) => ({ view: msg.view, log: [...s.log, ...msg.events], responseOptions: null, deadline: null, error: null }));
+        store.setState((s) => ({
+          seatId: s.seatId ?? viewer(msg.view),
+          view: msg.view,
+          log: [...s.log, ...msg.events],
+          responseOptions: null,
+          deadline: null,
+          error: null,
+        }));
         listener.update(msg.view);
         return;
       case "passDevice":
@@ -98,8 +113,14 @@ export function connectSeat({ connection, name, host = false, seatId, remote = f
       case "error":
         store.setState({ error: msg.message });
         return;
-      default:
-        // The host being away and back isn't shown yet.
+      case "hostAway":
+        store.setState({ hostAway: true });
+        return;
+      case "hostBack":
+        store.setState({ hostAway: false });
+        return;
+      case "roomClosed":
+        listener.roomClosed();
         return;
     }
   }

@@ -1,6 +1,6 @@
-import type { ClientMsg } from "@here-to-slay/protocol";
+import type { ClientMsg, RoomMsg } from "@here-to-slay/protocol";
 import { describe, expect, it } from "vitest";
-import { JoinError, MemoryActionLogStore, RelayConnection, Room, relaySocket, type WebSocketLike } from "../src/index.js";
+import { JoinError, MemoryActionLogStore, RelayConnection, Room, relaySocket, type RelayDialer, type RelaySocket, type WebSocketLike } from "../src/index.js";
 import { FakeRelay, settle } from "./fake-relay.js";
 import { Client, FakeClock, FakeTimers, makeRoom, nextMove, sendMove, toyEngine, viewOf, type Update } from "./harness.js";
 
@@ -83,6 +83,13 @@ describe("joining over the relay", () => {
     await expect(joining).rejects.toThrow("There is no Room ZZZZZ. It may have closed; ask the Host for a new Room Code.");
   });
 
+  it("says when the relay can't be reached, keeping the dialer's failure as the cause", async () => {
+    const offline = new Error("offline");
+    const joining = RelayConnection.join({ dialer: { dial: () => Promise.reject(offline) }, roomCode: "HXQ7M", name: "Bob" });
+    await expect(joining).rejects.toThrow("Could not reach the relay: offline");
+    await expect(joining).rejects.toHaveProperty("cause", offline);
+  });
+
   it("refuses the code of a Room that has closed", async () => {
     const { relay, roomCode } = hostedRoom();
     relay.closeRoom(roomCode);
@@ -106,6 +113,26 @@ describe("joining over the relay", () => {
     expect(bob.connection.closed).toBe(true);
   });
 
+  it("reports a dropped socket as an error, already closed, so the UI can tell it from the Room's errors", async () => {
+    const { relay, roomCode } = hostedRoom();
+    const sockets: RelaySocket[] = [];
+    const dialer: RelayDialer = {
+      async dial(code, seatToken) {
+        const dialed = await relay.dialer.dial(code, seatToken);
+        if (!("refused" in dialed)) sockets.push(dialed);
+        return dialed;
+      },
+    };
+    const bob = await RelayConnection.join({ dialer, roomCode, name: "Bob" });
+    await settle();
+    const seen: [RoomMsg, boolean][] = [];
+    bob.onMessage((msg) => seen.push([msg, bob.closed]));
+
+    (sockets[0] as unknown as { drop(): void }).drop();
+    await settle();
+    expect(seen.at(-1)).toEqual([{ t: "error", message: `Lost the connection to Room ${roomCode}` }, true]);
+  });
+
   it("tells friends when the Host is away, and when it is back", async () => {
     const { relay, roomCode } = hostedRoom();
     const bob = await join(relay, roomCode, "Bob");
@@ -116,6 +143,26 @@ describe("joining over the relay", () => {
     relay.connectHost(roomCode, `host-token-${roomCode}`);
     await settle();
     expect(bob.client.of("hostBack")).toHaveLength(1);
+  });
+
+  it("retakes a friend's Seat by itself when the Host comes back from a refresh in the lobby", async () => {
+    const { relay, roomCode } = hostedRoom();
+    const bob = await join(relay, roomCode, "Bob");
+    relay.dropHost(roomCode);
+    await settle();
+
+    // The refreshed Host rebuilds an empty lobby under the same Room Code: it knows no friend.
+    const room = makeRoom({ roomCode });
+    const host = new Client(room.hostConnection);
+    room.attachRelay(relay.connectHost(roomCode, `host-token-${roomCode}`));
+    await settle();
+
+    expect(host.last("lobby").seats.map((s) => [s.name, s.kind, s.connected])).toEqual([
+      ["Alice", "local", true],
+      ["Bob", "remote", true],
+    ]);
+    expect(bob.client.last("lobby").you).toEqual([host.last("lobby").seats[1]!.id]);
+    expect(bob.client.of("error")).toEqual([]);
   });
 
   it("refuses to seat a friend once the game has started, or when the Room is full", async () => {

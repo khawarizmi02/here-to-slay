@@ -6,7 +6,7 @@ import { Lobby } from "./Lobby.js";
 /**
  * Whatever the Seat on screen should see: the lobby until the game starts,
  * then the game layer. The Pass-Device Step hides it all while the device
- * changes hands.
+ * changes hands, and "Waiting for Host…" shows over it while the Host is away.
  */
 export function SeatScreen({
   device,
@@ -20,7 +20,7 @@ export function SeatScreen({
   onGameOver: () => void;
 }) {
   const { onScreen: seat, passTo } = useStore(device.store);
-  const { lobby, view, log, responseOptions, deadline, error } = useStore(seat.store);
+  const { lobby, view, log, responseOptions, deadline, error, hostAway } = useStore(seat.store);
   return (
     <>
       <header className="room-bar">
@@ -29,6 +29,11 @@ export function SeatScreen({
         </button>
         {device.hosting && <p className="hosting-notice">Keep this tab open: you are hosting</p>}
       </header>
+      {hostAway && (
+        <p role="status" className="host-away">
+          Waiting for Host…
+        </p>
+      )}
       {passTo ? (
         <PassDeviceStep name={passTo.name} onConfirm={device.confirmPass} />
       ) : (
