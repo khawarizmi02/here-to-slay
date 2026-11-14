@@ -67,6 +67,16 @@ describe("turns", () => {
     connection.receive({ t: "actionRejected", clientSeq: 0, error: "It is not your turn" });
     expect(screen.getByRole("alert")).toHaveTextContent("It is not your turn");
   });
+
+  it("lets the player carry on after a rejection, and drops the reason once they act again", async () => {
+    const connection = await inGame(newGame());
+    connection.receive({ t: "actionRejected", clientSeq: 0, error: "It is not your turn" });
+
+    screen.getByRole("button", { name: "Draw a card" }).click();
+    expect(connection.takeSent()).toEqual([{ t: "action", seat: "s1", action: { type: "DRAW_CARD", player: "s1" }, clientSeq: 0 }]);
+    expect(await screen.findByRole("button", { name: "Draw a card" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
 
 describe("response windows", () => {
@@ -122,6 +132,44 @@ describe("decisions", () => {
     await inGame(wished(), "s2");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByText("Waiting for Alice to choose…")).toBeInTheDocument();
+  });
+});
+
+describe("the game log", () => {
+  /** Applies `action` to `state`, and the update `seat` gets for it, events and all. */
+  function step(state: toy.GameState, action: toy.Action, seat: string) {
+    const result = toy.applyAction(state, action);
+    if (!result.ok) throw new Error(result.error);
+    return { state: result.state, msg: { ...update(result.state, seat), events: toy.getPlayerEvents(result.events, seat) } };
+  }
+
+  function logLines() {
+    return within(screen.getByRole("list", { name: "Game log" }))
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+  }
+
+  it("tells the Seat what happened, update by update, in a log that starts collapsed", async () => {
+    const connection = await inGame(newGame());
+    expect(screen.getByText("Game log").closest("details")).not.toHaveAttribute("open");
+
+    const played = step(newGame(), { type: "PLAY_HERO", player: "s1", card: "point_1#0" }, "s1");
+    connection.receive(played.msg);
+    connection.receive(step(played.state, { type: "PASS", player: "s2" }, "s1").msg);
+    expect(logLines()).toEqual(["You played 1 Point", "Bot 1 passed", "You scored 1 point (1 in all)", "Turn 2: Bot 1's turn"]);
+  });
+
+  it("shows only what the Seat may see: a card someone else draws stays hidden", async () => {
+    const drawn = step(newGame(), { type: "DRAW_CARD", player: "s1" }, "s2");
+    const connection = await inGame(newGame(), "s2");
+    connection.receive(drawn.msg);
+    expect(logLines()).toContain("Alice drew a card");
+    expect(logLines().join()).not.toContain("3 Points");
+
+    cleanup();
+    const mine = await inGame(newGame(), "s1");
+    mine.receive(step(newGame(), { type: "DRAW_CARD", player: "s1" }, "s1").msg);
+    expect(logLines()).toContain("You drew 3 Points");
   });
 });
 

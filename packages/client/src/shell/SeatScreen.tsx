@@ -1,6 +1,6 @@
 import { useStore } from "zustand";
 import type { Device } from "./device.js";
-import type { GameComponent } from "./game.js";
+import type { GameLayer } from "./game.js";
 import { Lobby } from "./Lobby.js";
 
 /**
@@ -10,17 +10,17 @@ import { Lobby } from "./Lobby.js";
  */
 export function SeatScreen({
   device,
-  Game,
+  game,
   onLeave,
   onGameOver,
 }: {
   device: Device;
-  Game: GameComponent;
+  game: GameLayer;
   onLeave: () => void;
   onGameOver: () => void;
 }) {
   const { onScreen: seat, passTo } = useStore(device.store);
-  const { lobby, view, responseOptions, error } = useStore(seat.store);
+  const { lobby, view, log, responseOptions, error } = useStore(seat.store);
   return (
     <>
       <header className="room-bar">
@@ -38,9 +38,17 @@ export function SeatScreen({
             </p>
           )}
           {view ? (
-            <Game view={view} responseOptions={responseOptions} act={seat.act} onGameOver={onGameOver} />
+            <game.Board view={view} log={log} responseOptions={responseOptions} act={seat.act} onGameOver={onGameOver} />
           ) : lobby ? (
-            <Lobby seats={lobby} onAddPlayer={seat.addLocalSeat} onAddBot={seat.addBot} onStart={seat.startGame} />
+            <Lobby
+              seats={lobby}
+              host={seat.host}
+              Rules={game.Rules}
+              onSetConfig={seat.setConfig}
+              onAddPlayer={seat.addLocalSeat}
+              onAddBot={seat.addBot}
+              onStart={seat.startGame}
+            />
           ) : (
             <p>Connecting…</p>
           )}

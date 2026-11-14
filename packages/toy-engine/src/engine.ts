@@ -12,6 +12,7 @@ import {
   type PlayerView,
   type ToyCard,
   type ToyCardDefId,
+  type ToyDecisionOption,
   type ToyPlayer,
 } from "./types.js";
 
@@ -20,7 +21,8 @@ const MAX_PLAYERS = 6;
 
 const POINTS: Partial<Record<ToyCardDefId, number>> = { point_1: 1, point_2: 2, point_3: 3 };
 
-const WISH_OPTIONS = [
+/** The Wish decision's options, also used by the client to name the one chosen. */
+export const WISH_OPTIONS: readonly ToyDecisionOption[] = [
   { id: "gain2", label: "Gain 2 points" },
   { id: "draw2", label: "Draw 2 cards" },
 ];
