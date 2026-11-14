@@ -8,11 +8,13 @@ afterEach(cleanup);
 const FRIEND = { mode: "online", role: "friend", roomCode: "ABCDE", name: "Bob" } as const;
 
 describe("the first screen", () => {
-  it("offers all three choices, with only Play on this device built so far", () => {
-    renderClient();
+  it("offers all three choices, joining once there's a Room Code", async () => {
+    const { user } = renderClient();
     expect(screen.getByRole("button", { name: "Play on this device" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Host online" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Host online" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Join with a Room Code" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Room Code"), "HJK23");
+    expect(screen.getByRole("button", { name: "Join with a Room Code" })).toBeEnabled();
   });
 
   it("starts a Room on this device under the player's name", async () => {

@@ -1,6 +1,7 @@
 import { env, runDurableObjectAlarm } from "cloudflare:test";
+import { exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connect, connectHost, createRoom, createRoomWithCode, joinAsNewFriend, upgrade } from "./client.js";
+import { BASE, connect, connectHost, createRoom, createRoomWithCode, joinAsNewFriend, upgrade } from "./client.js";
 
 describe("creating a Room", () => {
   it("returns a 5-character Room Code without 0/O/1/I and a secret host token", async () => {
@@ -180,6 +181,17 @@ describe("unknown Rooms", () => {
     expect((await upgrade("ZZZZZ")).status).toBe(404);
     expect((await upgrade("bad")).status).toBe(404);
     expect((await upgrade("%E0")).status).toBe(404);
+  });
+
+  it("answer a browser's plain request too, so a tab whose WebSocket was refused can read why", async () => {
+    const { roomCode } = await createRoom();
+    const plain = (code: string) => exports.default.fetch(`${BASE}/rooms/${code}/ws`, { headers: { Origin: "https://game.test" } });
+    const unknown = await plain("ZZZZZ");
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    const known = await plain(roomCode);
+    expect(known.status).toBe(426);
+    expect(known.headers.get("Access-Control-Allow-Origin")).toBe("*");
   });
 });
 

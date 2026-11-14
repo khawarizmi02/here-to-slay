@@ -19,6 +19,13 @@ function json(body: unknown, status: number): Response {
   });
 }
 
+/** `response`, readable by a browser tab on another origin. */
+function withCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(CORS_HEADERS)) headers.set(name, value);
+  return new Response(response.body, { status: response.status, headers });
+}
+
 async function createRoom(env: Env): Promise<Response> {
   const hostToken = newHostToken();
   for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
@@ -39,7 +46,9 @@ export default {
     if (ws && request.method === "GET") {
       const roomCode = ws[1]!.toUpperCase();
       if (!RoomCodeSchema.safeParse(roomCode).success) return json({ error: "No such Room" }, 404);
-      return env.ROOMS.get(env.ROOMS.idFromName(roomCode)).fetch(request);
+      const response = await env.ROOMS.get(env.ROOMS.idFromName(roomCode)).fetch(request);
+      // A browser can't read why its WebSocket was refused, so a tab asks again with a plain request and reads this.
+      return response.status === 101 ? response : withCors(response);
     }
     return json({ error: "Not found" }, 404);
   },

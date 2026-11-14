@@ -14,6 +14,8 @@ export interface SeatState {
   log: GameEvent[];
   /** The Seat's options in a response window, from the Room's `respond`. Cleared by the next update. */
   responseOptions: Action[] | null;
+  /** When the Room answers for this remote Seat (a `Date.now()` time), from its latest `countdown`. Cleared by the next update. */
+  deadline: number | null;
   /** The Room's latest refusal, cleared by the next lobby or update, or when the player asks for something else. */
   error: string | null;
 }
@@ -31,6 +33,8 @@ export interface DeviceSeat {
   readonly name: string;
   /** Whether this is the Host's own Seat. */
   readonly host: boolean;
+  /** Whether this is a friend's Seat behind the relay, asked to respond through its view. */
+  readonly remote: boolean;
   readonly store: StoreApi<SeatState>;
   /**
    * Starts handling the Room's messages, including any that arrived
@@ -48,8 +52,16 @@ export interface DeviceSeat {
 }
 
 /** Wraps one local Seat's connection. */
-export function connectSeat({ connection, name, host = false, seatId }: LaunchedSeat): DeviceSeat {
-  const store = createStore<SeatState>()(() => ({ seatId: seatId ?? null, lobby: null, view: null, log: [], responseOptions: null, error: null }));
+export function connectSeat({ connection, name, host = false, seatId, remote = false }: LaunchedSeat): DeviceSeat {
+  const store = createStore<SeatState>()(() => ({
+    seatId: seatId ?? null,
+    lobby: null,
+    view: null,
+    log: [],
+    responseOptions: null,
+    deadline: null,
+    error: null,
+  }));
   let clientSeq = 0;
   let unsubscribe = () => {};
   /** Sends what the player asked for. A refusal of their last request no longer applies, so its reason goes. */
@@ -68,7 +80,7 @@ export function connectSeat({ connection, name, host = false, seatId }: Launched
         store.setState({ seatId: msg.you[0] ?? null, lobby: msg.seats, error: null });
         return;
       case "update":
-        store.setState((s) => ({ view: msg.view, log: [...s.log, ...msg.events], responseOptions: null, error: null }));
+        store.setState((s) => ({ view: msg.view, log: [...s.log, ...msg.events], responseOptions: null, deadline: null, error: null }));
         listener.update(msg.view);
         return;
       case "passDevice":
@@ -77,6 +89,9 @@ export function connectSeat({ connection, name, host = false, seatId }: Launched
       case "respond":
         store.setState({ responseOptions: msg.actions });
         return;
+      case "countdown":
+        store.setState({ deadline: Date.now() + msg.ms });
+        return;
       case "actionRejected":
         store.setState({ error: msg.error });
         return;
@@ -84,7 +99,7 @@ export function connectSeat({ connection, name, host = false, seatId }: Launched
         store.setState({ error: msg.message });
         return;
       default:
-        // Messages for remote Seats (countdown, host away and back) aren't shown yet.
+        // The host being away and back isn't shown yet.
         return;
     }
   }
@@ -92,6 +107,7 @@ export function connectSeat({ connection, name, host = false, seatId }: Launched
   return {
     name,
     host,
+    remote,
     store,
     listen(listener) {
       unsubscribe = connection.onMessage((msg) => handle(msg, listener));

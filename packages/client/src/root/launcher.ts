@@ -1,17 +1,28 @@
 import type { RoomMsg, SeatId } from "@here-to-slay/protocol";
-import { IndexedDbActionLogStore, Room, type GameConnection, type IdbFactoryLike, type RecordSeat, type RoomEngine } from "@here-to-slay/room";
+import {
+  IndexedDbActionLogStore,
+  RelayConnection,
+  Room,
+  type GameConnection,
+  type IdbFactoryLike,
+  type RecordSeat,
+  type RelaySocket,
+  type RoomEngine,
+} from "@here-to-slay/room";
 import { toyRoomEngine, type GameState } from "@here-to-slay/toy-engine";
 import type { LaunchedRoom, LaunchedSeat, Launcher } from "../shell/game.js";
+import { browserDialer, createRelayRoom, hostSocket, type RelayRoom } from "./relay.js";
 
 /** The toy engine stands in for the rules engine until the board moves to it. */
 const engine: RoomEngine<GameState> = toyRoomEngine;
 
 /**
  * The composition root: the only code that touches the Room. It builds Rooms
- * in this tab with the browser's clock, randomness and IndexedDB, and hands
- * the shell nothing but connections.
+ * in this tab with the browser's clock, randomness and IndexedDB, reaches
+ * the relay at `relayUrl` for online Rooms, and hands the shell nothing but
+ * connections.
  */
-export function browserLauncher(): Launcher {
+export function browserLauncher(relayUrl: string): Launcher {
   const roomOptions = {
     engine,
     clock: { now: () => Date.now() },
@@ -24,6 +35,40 @@ export function browserLauncher(): Launcher {
     playOnThisDevice(name) {
       // "Play on this device" never contacts the relay: the Room makes up its own Room Code.
       return onThisDevice(new Room({ ...roomOptions, hostName: name }), { name, host: true });
+    },
+
+    async hostOnline(name) {
+      let created: RelayRoom;
+      let socket: RelaySocket;
+      try {
+        created = await createRelayRoom(relayUrl);
+        socket = await hostSocket(relayUrl, created.roomCode, created.hostToken);
+      } catch (e) {
+        throw new Error(`Couldn't host online: the relay can't be reached (${e instanceof Error ? e.message : String(e)})`, { cause: e });
+      }
+      const room = new Room({ ...roomOptions, hostName: name, roomCode: created.roomCode });
+      room.attachRelay(socket);
+      const stopChecking = checkDeadlinesWhenVisible(room, document);
+      return {
+        ...onThisDevice(room, { name, host: true }),
+        online: { token: created.hostToken },
+        close() {
+          stopChecking();
+          socket.close();
+        },
+      };
+    },
+
+    async join(roomCode, name) {
+      // Rejects with a JoinError, whose message is for the player.
+      const connection = await RelayConnection.join({ dialer: browserDialer(relayUrl), roomCode, name });
+      return {
+        roomCode: connection.roomCode,
+        seats: [{ connection, name, remote: true }],
+        // Only the Host's device adds local Seats.
+        onSeatAdded: () => () => {},
+        online: { token: connection.seatToken },
+      };
     },
 
     async resume(pointer) {
@@ -108,4 +153,17 @@ function watched(connection: GameConnection, watch: (msg: RoomMsg) => void): Gam
       connection.close();
     },
   };
+}
+
+/**
+ * Browsers slow down timers in background tabs, so the Host's tab has the
+ * Room check its deadlines whenever it becomes visible again
+ * (TECHNICAL_DESIGN.md §10.6). Returns a function that stops it.
+ */
+export function checkDeadlinesWhenVisible(room: Pick<Room<unknown>, "checkDeadlines">, doc: Document): () => void {
+  const check = () => {
+    if (doc.visibilityState === "visible") room.checkDeadlines();
+  };
+  doc.addEventListener("visibilitychange", check);
+  return () => doc.removeEventListener("visibilitychange", check);
 }

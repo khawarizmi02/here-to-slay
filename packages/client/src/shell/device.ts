@@ -1,4 +1,4 @@
-import type { PlayerViewPayload, SeatId } from "@here-to-slay/protocol";
+import type { PlayerViewPayload, RoomCode, SeatId } from "@here-to-slay/protocol";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { LaunchedRoom } from "./game.js";
 import { connectSeat, type DeviceSeat } from "./seat.js";
@@ -16,6 +16,10 @@ export interface DeviceState {
 /** Every local Seat on this device, one connection each, shown one at a time. */
 export interface Device {
   readonly store: StoreApi<DeviceState>;
+  /** The Room Code friends join with, or null for a game on this device: nobody can use its code. */
+  readonly roomCode: RoomCode | null;
+  /** Whether this device hosts a Room friends play in through the relay, so its tab must stay open. */
+  readonly hosting: boolean;
   /** The player the Pass-Device Step names has the device. */
   confirmPass(): void;
   close(): void;
@@ -70,6 +74,8 @@ export function connectDevice(room: LaunchedRoom, seatToAct: (view: PlayerViewPa
 
   return {
     store,
+    roomCode: room.online ? room.roomCode : null,
+    hosting: room.online !== undefined && first.host,
     confirmPass() {
       const seat = store.getState().passTo;
       if (!seat) return;
@@ -80,6 +86,7 @@ export function connectDevice(room: LaunchedRoom, seatToAct: (view: PlayerViewPa
     close() {
       stopAdding();
       for (const seat of store.getState().seats) seat.close();
+      room.close?.();
     },
   };
 }

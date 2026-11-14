@@ -6,8 +6,15 @@ import { storagePointerStore } from "./shell/pointer.js";
 import { toyGame } from "./toy/ToyGame.js";
 import "./styles.css";
 
+/** Set at build time (TECHNICAL_DESIGN.md §10.8). Only a dev server falls back to `wrangler dev`'s address. */
+function relayUrl(): string {
+  const url = import.meta.env.VITE_RELAY_URL ?? (import.meta.env.DEV ? "http://localhost:8787" : undefined);
+  if (url === undefined) throw new Error("This build has no relay: set VITE_RELAY_URL when building");
+  return url;
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App launcher={browserLauncher()} pointers={storagePointerStore(localStorage)} game={toyGame} />
+    <App launcher={browserLauncher(relayUrl())} pointers={storagePointerStore(localStorage)} game={toyGame} />
   </StrictMode>,
 );

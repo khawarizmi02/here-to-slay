@@ -12,8 +12,14 @@ export interface GameProps {
   view: PlayerViewPayload;
   /** The events of every update so far, oldest first, filtered for this Seat. */
   log: GameEvent[];
-  /** Response options from the Room's `respond`, or null when the Room isn't asking this Seat. */
+  /**
+   * The Seat's options in a response window, or null when the Room isn't
+   * asking it: from the Room's `respond` for a local Seat, and from the game
+   * layer's `responseOptions` for a remote one.
+   */
   responseOptions: Action[] | null;
+  /** When the Room answers for a remote Seat that hasn't (a `Date.now()` time), from its `countdown`; null when nothing is timed. */
+  deadline: number | null;
   act(action: Action): void;
   /** Called once the game layer sees the game is over: nothing is left to resume. */
   onGameOver(): void;
@@ -38,6 +44,11 @@ export interface GameLayer {
    * waits on nobody that way: in a response window, or at game over.
    */
   seatToAct(view: PlayerViewPayload): SeatId | null;
+  /**
+   * A remote Seat's options in a response window, read from its own view:
+   * the Room sends remote Seats no `respond`. Null when it isn't asked.
+   */
+  responseOptions(view: PlayerViewPayload): Action[] | null;
 }
 
 /** One local Seat's connection to a Room, as the composition root hands it over. */
@@ -52,6 +63,11 @@ export interface LaunchedSeat {
    * way sends only updates. Otherwise the lobby names it.
    */
   seatId?: SeatId;
+  /**
+   * A friend's Seat behind the relay. The Room asks it to respond through its
+   * view, with a `countdown`, and never sends it `respond`.
+   */
+  remote?: boolean;
 }
 
 /** A Room as this device sees it: one connection per local Seat. */
@@ -61,12 +77,24 @@ export interface LaunchedRoom {
   seats: LaunchedSeat[];
   /** Calls `cb` with each local Seat the Host adds later, in the lobby. Returns a function that unsubscribes. */
   onSeatAdded(cb: (seat: LaunchedSeat) => void): () => void;
+  /** Set for a Room reached through the relay: the Host's `hostToken` or a friend's `seatToken`, kept in the pointer. */
+  online?: { token: string };
+  /** Stops what the Room needs beyond its Seats' connections, such as the Host's own socket to the relay. */
+  close?(): void;
 }
 
 /** How the shell starts a Room, provided by the composition root. */
 export interface Launcher {
   /** Builds a Room on this device, with the player's local Seat. */
   playOnThisDevice(name: string): LaunchedRoom;
+  /** Builds a Room the relay knows, with the player's local Seat, for friends to join. Rejects with a message for the player. */
+  hostOnline(name: string): Promise<LaunchedRoom>;
+  /**
+   * Takes a Seat in the Room with `roomCode`, as the player typed it, through
+   * the relay. Rejects with a message for the player, such as when there is
+   * no such Room.
+   */
+  join(roomCode: string, name: string): Promise<LaunchedRoom>;
   /** Goes back into the Room `pointer` names, after a refresh, with every local Seat. Rejects when it can't. */
   resume(pointer: RoomPointer): Promise<LaunchedRoom>;
 }

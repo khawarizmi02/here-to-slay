@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_TOY_CONFIG, WISH_OPTIONS, type Action, type GameEvent, type PlayerView, type ToyCard, type ToyCardDefId, type ToyConfig, type ToyPendingDecision } from "@here-to-slay/toy-engine";
+import { Countdown } from "../shell/Countdown.js";
 import type { GameLayer, GameProps, RulesProps } from "../shell/game.js";
 
 const CARD_NAMES: Record<ToyCardDefId, string> = {
@@ -20,14 +21,20 @@ export const toyGame: GameLayer = {
     if (view.phase === "decision") return view.pendingDecision?.player ?? null;
     return view.phase === "action" ? view.activePlayer : null;
   },
+  responseOptions(payload) {
+    const view = payload as unknown as PlayerView;
+    // The engine offers a Seat responses only while the window awaits it.
+    return view.phase === "responseWindow" && view.legalActions.length > 0 ? view.legalActions : null;
+  },
 };
 
 /**
  * The toy engine's board: the only code that reads the toy PlayerView. Turn
  * actions and decisions come from `view.legalActions`; response options
- * only from the Room's `respond`. It holds no game rules.
+ * from the shell, which reads a local Seat's from the Room's `respond`. It
+ * holds no game rules.
  */
-export function ToyGame({ view: payload, log, responseOptions, act, onGameOver }: GameProps) {
+export function ToyGame({ view: payload, log, responseOptions, deadline, act, onGameOver }: GameProps) {
   const view = payload as unknown as PlayerView;
   const events = log as unknown as GameEvent[];
   const nameOf = (id: string) => nameIn(view, id);
@@ -71,11 +78,12 @@ export function ToyGame({ view: payload, log, responseOptions, act, onGameOver }
               {responseLabel(action, view.hand)}
             </button>
           ))}
+          {deadline !== null && <Countdown deadline={deadline} />}
         </section>
       )}
 
       {decision && "options" in decision ? (
-        <DecisionModal decision={decision} legal={view.legalActions} act={act} />
+        <DecisionModal decision={decision} legal={view.legalActions} deadline={deadline} act={act} />
       ) : (
         decision && <p>Waiting for {nameOf(decision.player)} to choose…</p>
       )}
@@ -165,7 +173,17 @@ function Scores({ view }: { view: PlayerView }) {
   );
 }
 
-function DecisionModal({ decision, legal, act }: { decision: ToyPendingDecision; legal: Action[]; act: (a: Action) => void }) {
+function DecisionModal({
+  decision,
+  legal,
+  deadline,
+  act,
+}: {
+  decision: ToyPendingDecision;
+  legal: Action[];
+  deadline: number | null;
+  act: (a: Action) => void;
+}) {
   return (
     <div role="dialog" aria-label={decision.prompt} className="decision">
       <h3>{decision.prompt}</h3>
@@ -177,6 +195,7 @@ function DecisionModal({ decision, legal, act }: { decision: ToyPendingDecision;
           </button>
         );
       })}
+      {deadline !== null && <Countdown deadline={deadline} />}
     </div>
   );
 }

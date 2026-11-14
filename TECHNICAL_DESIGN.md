@@ -1066,12 +1066,12 @@ Decisions: target the player closest to winning.
 ```
 
 ### 12.2 Principles
-- **The UI only renders `PlayerView` and sends `Action`s through a `GameConnection`** (Section 10.3). It contains no game rules and doesn't know whether it is local or remote.
+- **The UI only renders `PlayerView` and sends `Action`s through a `GameConnection`** (Section 10.3). It contains no game rules and doesn't know whether its connection is local or remote.
 - **Drive interaction from legal actions** (`PlayerView.legalActions`, Section 9): highlight only playable cards, valid targets, and attackable monsters. Disabled elements show a tooltip explaining why ("Needs 2 heroes").
 - **Render `pendingDecision`** as a modal or inline selection with its options.
 - **Queue animations:** incoming `GameEvent`s go into an animation queue and play in order (dice roll, card fly, flip). Update the view after each event's animation, or use a "skip animations" toggle.
 - **Response windows** show a large, clear bar with a countdown, the eligible cards, and a Pass button.
-- **Local Seats** get a "Pass the device to P2" screen that hides the hand between players, for both turns and response windows (Section 7.4). The Room asks for it in response windows with `passDevice`; the client works it out for turns. A device with only one local Seat skips the screen: the client answers `passDevice` with `confirmPassDevice` straight away, because there is nobody to pass to. A local Seat's response options come from `respond`, never from `legalActions`, because the Room rejects a response sent before it asks.
+- **Local Seats** get a "Pass the device to P2" screen that hides the hand between players, for both turns and response windows (Section 7.4). The Room asks for it in response windows with `passDevice`; the client works it out for turns. A device with only one local Seat skips the screen: the client answers `passDevice` with `confirmPassDevice` straight away, because there is nobody to pass to. A local Seat's response options come from `respond`, never from `legalActions`, because the Room rejects a response sent before it asks. A remote Seat is sent no `respond`: its response options come from its view, and its time from `countdown`.
 - **Host status:** the Host sees a "you are hosting, keep this tab open" notice. Friends see a "Waiting for Host…" overlay on `hostAway`, and a "Waiting for responses…" status while a response window is open and they have nothing left to answer. It names nobody, so it reveals nothing about any hand.
 
 ### 12.3 Component list

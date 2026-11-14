@@ -5,7 +5,11 @@ import { Home } from "./Home.js";
 import type { PointerStore, RoomPointer } from "./pointer.js";
 import { SeatScreen } from "./SeatScreen.js";
 
-type Screen = { kind: "home"; message?: string } | { kind: "resuming"; pointer: RoomPointer } | { kind: "device"; device: Device };
+type Screen =
+  | { kind: "home"; message?: string }
+  | { kind: "resuming"; pointer: RoomPointer }
+  | { kind: "connecting" }
+  | { kind: "device"; device: Device };
 
 /**
  * On load, a device with a Room pointer goes straight back into that Room,
@@ -38,6 +42,18 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
     enter(launched);
   }
 
+  /** Opens a Room through the relay, pointing at it once it's open, or lands back on the first screen with the reason. */
+  function goOnline(role: RoomPointer["role"], name: string, open: Promise<LaunchedRoom>) {
+    setScreen({ kind: "connecting" });
+    open.then(
+      (launched) => {
+        pointers.save({ mode: "online", role, roomCode: launched.roomCode, name, ...(launched.online && { token: launched.online.token }) });
+        enter(launched);
+      },
+      (e: unknown) => setScreen({ kind: "home", message: e instanceof Error ? e.message : String(e) }),
+    );
+  }
+
   function leave() {
     pointers.clear();
     setScreen({ kind: "home" });
@@ -45,9 +61,18 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
 
   switch (screen.kind) {
     case "home":
-      return <Home message={screen.message} onPlayOnThisDevice={playOnThisDevice} />;
+      return (
+        <Home
+          message={screen.message}
+          onPlayOnThisDevice={playOnThisDevice}
+          onHostOnline={(name) => goOnline("host", name, launcher.hostOnline(name))}
+          onJoin={(roomCode, name) => goOnline("friend", name, launcher.join(roomCode, name))}
+        />
+      );
     case "resuming":
       return <p>Resuming your game…</p>;
+    case "connecting":
+      return <p>Connecting to the relay…</p>;
     case "device":
       return <SeatScreen device={screen.device} game={game} onLeave={leave} onGameOver={pointers.clear} />;
   }
