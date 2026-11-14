@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { Action, PlayerView, ToyCard, ToyCardDefId, ToyPendingDecision } from "@here-to-slay/toy-engine";
 import type { GameProps } from "../shell/game.js";
 
@@ -15,10 +16,13 @@ const CARD_NAMES: Record<ToyCardDefId, string> = {
  * actions and decisions come from `view.legalActions`; response options
  * only from the Room's `respond`. It holds no game rules.
  */
-export function ToyGame({ view: payload, responseOptions, act }: GameProps) {
+export function ToyGame({ view: payload, responseOptions, act, onGameOver }: GameProps) {
   const view = payload as unknown as PlayerView;
   const nameOf = (id: string) => view.players.find((p) => p.id === id)?.name ?? id;
   const winner = view.winner;
+  useEffect(() => {
+    if (winner !== null) onGameOver();
+  }, [winner, onGameOver]);
 
   if (winner !== null) {
     return (

@@ -2,22 +2,30 @@ import type { LobbySeat } from "@here-to-slay/protocol";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/shell/App.js";
+import type { Launcher } from "../src/shell/game.js";
+import { memoryPointerStore, type RoomPointer } from "../src/shell/pointer.js";
 import { ToyGame } from "../src/toy/ToyGame.js";
 import { FakeConnection } from "./fake-connection.js";
 
 /** The whole client, shell and toy layer, with a fake connection where the composition root's Room would be. */
-export function renderClient() {
+export function renderClient({ pointer = null, resume }: { pointer?: RoomPointer | null; resume?: Launcher["resume"] } = {}) {
   const connection = new FakeConnection();
   const launched: string[] = [];
-  const launcher = {
-    playOnThisDevice(name: string) {
+  const resumed: RoomPointer[] = [];
+  const launcher: Launcher = {
+    playOnThisDevice(name) {
       launched.push(name);
-      return connection;
+      return { connection, roomCode: "ABCDE" };
+    },
+    resume(p) {
+      resumed.push(p);
+      return resume ? resume(p) : Promise.resolve({ connection, roomCode: p.roomCode });
     },
   };
+  const pointers = memoryPointerStore(pointer);
   const user = userEvent.setup();
-  render(<App launcher={launcher} Game={ToyGame} />);
-  return { connection, launched, user };
+  render(<App launcher={launcher} pointers={pointers} Game={ToyGame} />);
+  return { connection, launched, resumed, pointers, user };
 }
 
 export const ALICE: LobbySeat = { id: "s1", name: "Alice", kind: "local", connected: true };

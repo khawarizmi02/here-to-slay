@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 /** The first screen (TECHNICAL_DESIGN.md §12.3). Hosting and joining online aren't built yet. */
-export function Home({ onPlayOnThisDevice }: { onPlayOnThisDevice: (name: string) => void }) {
+export function Home({ message, onPlayOnThisDevice }: { message?: string | undefined; onPlayOnThisDevice: (name: string) => void }) {
   const [name, setName] = useState("Player 1");
   const trimmed = name.trim();
 
@@ -13,6 +13,11 @@ export function Home({ onPlayOnThisDevice }: { onPlayOnThisDevice: (name: string
   return (
     <main className="home">
       <h1>Here to Slay</h1>
+      {message && (
+        <p role="alert" className="error">
+          {message}
+        </p>
+      )}
       <form onSubmit={submit}>
         <label>
           Your name
