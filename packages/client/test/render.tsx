@@ -1,31 +1,63 @@
 import type { LobbySeat } from "@here-to-slay/protocol";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../src/shell/App.js";
-import type { Launcher } from "../src/shell/game.js";
+import type { LaunchedRoom, LaunchedSeat, Launcher } from "../src/shell/game.js";
 import { memoryPointerStore, type RoomPointer } from "../src/shell/pointer.js";
-import { ToyGame } from "../src/toy/ToyGame.js";
+import { toyGame } from "../src/toy/ToyGame.js";
 import { FakeConnection } from "./fake-connection.js";
 
-/** The whole client, shell and toy layer, with a fake connection where the composition root's Room would be. */
+/** A Room on this device as the composition root would hand it over, with `addSeat` standing in for a lobby naming a new local Seat. */
+export function fakeRoom(seats: LaunchedSeat[], roomCode = "ABCDE"): LaunchedRoom & { addSeat(seat: LaunchedSeat): void } {
+  const listeners = new Set<(seat: LaunchedSeat) => void>();
+  return {
+    roomCode,
+    seats,
+    onSeatAdded(cb) {
+      listeners.add(cb);
+      return () => {
+        listeners.delete(cb);
+      };
+    },
+    addSeat(seat) {
+      act(() => {
+        for (const cb of [...listeners]) cb(seat);
+      });
+    },
+  };
+}
+
+/** The whole client, shell and toy layer, with fake connections where the composition root's Room would be. */
 export function renderClient({ pointer = null, resume }: { pointer?: RoomPointer | null; resume?: Launcher["resume"] } = {}) {
   const connection = new FakeConnection();
+  let room = fakeRoom([{ connection, name: "Alice" }]);
   const launched: string[] = [];
   const resumed: RoomPointer[] = [];
   const launcher: Launcher = {
     playOnThisDevice(name) {
       launched.push(name);
-      return { connection, roomCode: "ABCDE" };
+      room = fakeRoom([{ connection, name }]);
+      return room;
     },
     resume(p) {
       resumed.push(p);
-      return resume ? resume(p) : Promise.resolve({ connection, roomCode: p.roomCode });
+      return resume ? resume(p) : Promise.resolve(fakeRoom([{ connection, name: p.name }], p.roomCode));
     },
   };
   const pointers = memoryPointerStore(pointer);
   const user = userEvent.setup();
-  render(<App launcher={launcher} pointers={pointers} Game={ToyGame} />);
-  return { connection, launched, resumed, pointers, user };
+  render(<App launcher={launcher} pointers={pointers} game={toyGame} />);
+  return {
+    connection,
+    launched,
+    resumed,
+    pointers,
+    user,
+    /** Connects another local Seat, as the composition root does when a lobby names one. */
+    addSeat(seat: LaunchedSeat) {
+      room.addSeat(seat);
+    },
+  };
 }
 
 export const ALICE: LobbySeat = { id: "s1", name: "Alice", kind: "local", connected: true };

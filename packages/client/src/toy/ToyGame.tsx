@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { Action, PlayerView, ToyCard, ToyCardDefId, ToyPendingDecision } from "@here-to-slay/toy-engine";
-import type { GameProps } from "../shell/game.js";
+import type { GameLayer, GameProps } from "../shell/game.js";
 
 const CARD_NAMES: Record<ToyCardDefId, string> = {
   point_1: "1 Point",
@@ -9,6 +9,16 @@ const CARD_NAMES: Record<ToyCardDefId, string> = {
   wish: "Wish",
   challenge: "Challenge",
   modifier: "Modifier +1",
+};
+
+/** The toy engine's layer: its board, and whom it waits on. */
+export const toyGame: GameLayer = {
+  Board: ToyGame,
+  seatToAct(payload) {
+    const view = payload as unknown as PlayerView;
+    if (view.phase === "decision") return view.pendingDecision?.player ?? null;
+    return view.phase === "action" ? view.activePlayer : null;
+  },
 };
 
 /**

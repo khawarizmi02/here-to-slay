@@ -1,44 +1,41 @@
 import { useEffect, useRef, useState } from "react";
-import type { GameComponent, Launcher } from "./game.js";
+import { connectDevice, type Device } from "./device.js";
+import type { GameLayer, LaunchedRoom, Launcher } from "./game.js";
 import { Home } from "./Home.js";
 import type { PointerStore, RoomPointer } from "./pointer.js";
 import { SeatScreen } from "./SeatScreen.js";
-import { connectSeat, type DeviceSeat } from "./seat.js";
 
-type Screen = { kind: "home"; message?: string } | { kind: "resuming"; pointer: RoomPointer } | { kind: "seat"; seat: DeviceSeat };
+type Screen = { kind: "home"; message?: string } | { kind: "resuming"; pointer: RoomPointer } | { kind: "device"; device: Device };
 
 /**
  * On load, a device with a Room pointer goes straight back into that Room,
  * with no prompt. Otherwise it starts on the first screen.
  */
-export function App({ launcher, pointers, Game }: { launcher: Launcher; pointers: PointerStore; Game: GameComponent }) {
+export function App({ launcher, pointers, game }: { launcher: Launcher; pointers: PointerStore; game: GameLayer }) {
   const [screen, setScreen] = useState<Screen>(() => {
     const pointer = pointers.load();
     return pointer ? { kind: "resuming", pointer } : { kind: "home" };
   });
-  const seat = screen.kind === "seat" ? screen.seat : null;
-  useEffect(() => () => seat?.close(), [seat]);
+  const device = screen.kind === "device" ? screen.device : null;
+  useEffect(() => () => device?.close(), [device]);
+  const enter = (room: LaunchedRoom) => setScreen({ kind: "device", device: connectDevice(room, game.seatToAct) });
 
   // Resuming builds a Room, so it must happen once: StrictMode runs effects twice, but keeps refs.
   const resumeStarted = useRef(false);
   useEffect(() => {
     if (screen.kind !== "resuming" || resumeStarted.current) return;
     resumeStarted.current = true;
-    launcher.resume(screen.pointer).then(
-      (launched) => setScreen({ kind: "seat", seat: connectSeat(launched.connection, { soleLocalSeat: true, seatId: launched.seatId }) }),
-      (e: unknown) => {
-        console.error("Couldn't resume the game", e);
-        pointers.clear();
-        setScreen({ kind: "home", message: "Your game couldn't be resumed." });
-      },
-    );
+    launcher.resume(screen.pointer).then(enter, (e: unknown) => {
+      console.error("Couldn't resume the game", e);
+      pointers.clear();
+      setScreen({ kind: "home", message: "Your game couldn't be resumed." });
+    });
   }, [screen, launcher, pointers]);
 
   function playOnThisDevice(name: string) {
     const launched = launcher.playOnThisDevice(name);
     pointers.save({ mode: "offline", role: "host", roomCode: launched.roomCode, name });
-    // The device has one local Seat until Hot-Seat with several is built.
-    setScreen({ kind: "seat", seat: connectSeat(launched.connection, { soleLocalSeat: true }) });
+    enter(launched);
   }
 
   function leave() {
@@ -51,7 +48,7 @@ export function App({ launcher, pointers, Game }: { launcher: Launcher; pointers
       return <Home message={screen.message} onPlayOnThisDevice={playOnThisDevice} />;
     case "resuming":
       return <p>Resuming your game…</p>;
-    case "seat":
-      return <SeatScreen seat={screen.seat} Game={Game} onLeave={leave} onGameOver={pointers.clear} />;
+    case "device":
+      return <SeatScreen device={screen.device} Game={game.Board} onLeave={leave} onGameOver={pointers.clear} />;
   }
 }
