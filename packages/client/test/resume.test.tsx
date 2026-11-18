@@ -3,7 +3,7 @@ import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { RoomClosedError } from "../src/shell/game.js";
 import { FakeConnection } from "./fake-connection.js";
-import { ALICE, BOT, fakeRoom, renderClient, renderInLobby } from "./render.js";
+import { ALICE, BOT, connected, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
 
@@ -43,6 +43,7 @@ describe("loading with a pointer", () => {
 
     await screen.findByText("Connecting…");
     connection.receive({ t: "update", version: 4, events: [], view: toy.getPlayerView(newGame(), "s1") as unknown as Record<string, unknown> });
+    await connected();
     within(screen.getByRole("region", { name: "Your hand" })).getByRole("button", { name: "1 Point" }).click();
     expect(connection.takeSent()).toEqual([
       { t: "action", seat: "s1", action: { type: "PLAY_HERO", player: "s1", card: "point_1#0" }, clientSeq: 0 },

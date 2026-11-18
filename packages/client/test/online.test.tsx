@@ -3,7 +3,7 @@ import * as toy from "@here-to-slay/toy-engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FakeConnection } from "./fake-connection.js";
-import { ALICE, fakeRoom, renderClient } from "./render.js";
+import { ALICE, connected, fakeRoom, renderClient } from "./render.js";
 
 const BOB = { id: "s2", name: "Bob", kind: "remote", connected: true } as const;
 
@@ -128,6 +128,7 @@ describe("a friend back from a refresh mid-game", () => {
     await screen.findByText("Connecting…");
 
     connection.receive({ t: "update", version: 2, events: [], view: bobAskedToRespond() });
+    await connected();
     await user.click(within(screen.getByRole("region", { name: "Respond" })).getByRole("button", { name: "Pass" }));
     expect(connection.takeSent()).toEqual([{ t: "action", seat: "s2", action: { type: "PASS", player: "s2" }, clientSeq: 0 }]);
   });

@@ -3,7 +3,7 @@ import * as toy from "@here-to-slay/toy-engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FakeConnection } from "./fake-connection.js";
-import { ALICE, fakeRoom, renderClient, renderInLobby } from "./render.js";
+import { ALICE, connected, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
 
@@ -212,6 +212,7 @@ describe("a refresh mid-game", () => {
     await screen.findByText("Connecting…");
     alice.receive({ t: "update", version: 7, events: [], view: toy.getPlayerView(state, "s1") as unknown as Record<string, unknown> });
     bob.receive({ t: "update", version: 7, events: [], view: toy.getPlayerView(state, "s2") as unknown as Record<string, unknown> });
+    await connected();
     return { ...client, alice, bob };
   }
 
