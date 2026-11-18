@@ -1,6 +1,7 @@
-import type { RoomMsg, SeatId } from "@here-to-slay/protocol";
+import type { RoomCode, RoomMsg, SeatId, SeatToken } from "@here-to-slay/protocol";
 import {
   IndexedDbActionLogStore,
+  JoinError,
   RelayConnection,
   Room,
   type GameConnection,
@@ -10,8 +11,10 @@ import {
   type RoomEngine,
 } from "@here-to-slay/room";
 import { toyRoomEngine, type GameState } from "@here-to-slay/toy-engine";
-import type { LaunchedRoom, LaunchedSeat, Launcher } from "../shell/game.js";
-import { browserDialer, createRelayRoom, hostSocket, type RelayRoom } from "./relay.js";
+import { RoomClosedError, type LaunchedRoom, type LaunchedSeat, type Launcher } from "../shell/game.js";
+import { stayAttached, stayJoined } from "./reconnect.js";
+import { heldSubscribers } from "./subscribers.js";
+import { browserDialer, createRelayRoom, hostSocket, rejoiningDialer, type RelayRoom } from "./relay.js";
 
 /** The toy engine stands in for the rules engine until the board moves to it. */
 const engine: RoomEngine<GameState> = toyRoomEngine;
@@ -47,53 +50,93 @@ export function browserLauncher(relayUrl: string): Launcher {
         throw new Error(`Couldn't host online: the relay can't be reached (${e instanceof Error ? e.message : String(e)})`, { cause: e });
       }
       const room = new Room({ ...roomOptions, hostName: name, roomCode: created.roomCode });
-      room.attachRelay(socket);
-      const stopChecking = checkDeadlinesWhenVisible(room, document);
-      return {
-        ...onThisDevice(room, { name, host: true }),
-        online: { token: created.hostToken },
-        close() {
-          stopChecking();
-          socket.close();
-        },
-      };
+      return hostedOnline(room, created.hostToken, socket, { name, host: true });
     },
 
     async join(roomCode, name) {
       // Rejects with a JoinError, whose message is for the player.
       const connection = await RelayConnection.join({ dialer: browserDialer(relayUrl), roomCode, name });
-      return {
-        roomCode: connection.roomCode,
-        seats: [{ connection, name, remote: true }],
-        // Only the Host's device adds local Seats.
-        onSeatAdded: () => () => {},
-        online: { token: connection.seatToken },
-      };
+      return asFriend(connection, name);
     },
 
     async resume(pointer) {
-      if (pointer.mode !== "offline" || pointer.role !== "host") throw new Error("Only games on this device can be resumed so far");
-      const record = await roomOptions.store.load(pointer.roomCode);
-      if (!record) {
-        // The Room saves nothing before startGame: a refresh in the lobby rebuilds an empty lobby under the same Room Code.
-        return onThisDevice(new Room({ ...roomOptions, hostName: pointer.name, roomCode: pointer.roomCode }), { name: pointer.name, host: true });
+      if (pointer.mode === "online" && pointer.token === undefined) throw new Error("An online Room's pointer has no token");
+      if (pointer.role === "friend") {
+        if (pointer.mode !== "online") throw new Error("A friend's Seat is always online");
+        return asFriend(await rejoin(pointer.roomCode, pointer.name, pointer.token!), pointer.name);
       }
+
+      // The Room saves nothing before startGame: a refresh in the lobby rebuilds an empty lobby under the same Room Code.
+      const record = await roomOptions.store.load(pointer.roomCode);
+      const room = record ? Room.restore(roomOptions, record) : new Room({ ...roomOptions, hostName: pointer.name, roomCode: pointer.roomCode });
       // The Host's Seat is always the record's first; a game under way sends no lobby to say so.
-      const [hostSeat, ...others] = record.seats;
-      return onThisDevice(
-        Room.restore(roomOptions, record),
-        { name: hostSeat!.name, host: true, seatId: hostSeat!.id },
-        others.filter((s) => s.kind === "local"),
-      );
+      const [hostSeat, ...others] = record?.seats ?? [];
+      const host = hostSeat ? { name: hostSeat.name, host: true, seatId: hostSeat.id } : { name: pointer.name, host: true };
+      const restored = others.filter((s) => s.kind === "local");
+      if (pointer.mode === "offline") return onThisDevice(room, host, restored);
+      // A relay that no longer knows the Room rejects with a RoomClosedError: friends were told it closed.
+      const socket = await hostSocket(relayUrl, pointer.roomCode, pointer.token!);
+      return hostedOnline(room, pointer.token!, socket, host, restored);
     },
   };
+
+  /** Comes back to the Seat `seatToken` holds. Rejects with a `RoomClosedError` when the relay no longer knows the Room. */
+  async function rejoin(roomCode: RoomCode, name: string, seatToken: SeatToken): Promise<RelayConnection> {
+    try {
+      return await RelayConnection.join({ dialer: rejoiningDialer(browserDialer(relayUrl)), roomCode, name, seatToken });
+    } catch (e) {
+      if (e instanceof JoinError && e.cause instanceof RoomClosedError) throw e.cause;
+      throw e;
+    }
+  }
+
+  /** A friend's one Seat, which joins again by itself whenever its socket drops. */
+  function asFriend(connection: RelayConnection, name: string): LaunchedRoom {
+    return {
+      roomCode: connection.roomCode,
+      seats: [{ connection: stayJoined(connection, () => rejoin(connection.roomCode, name, connection.seatToken)), name, remote: true }],
+      // Only the Host's device adds local Seats.
+      onSeatAdded: () => () => {},
+      online: { token: connection.seatToken },
+    };
+  }
+
+  /**
+   * `room` on the relay through `socket`, which is replaced whenever it
+   * drops. The Host's tab checks deadlines whenever it is visible again.
+   */
+  function hostedOnline(
+    room: Room<GameState>,
+    hostToken: string,
+    socket: RelaySocket,
+    host: Omit<LaunchedSeat, "connection">,
+    restored: RecordSeat[] = [],
+  ): LaunchedRoom {
+    room.attachRelay(socket);
+    const { announceRoomClosed, ...launched } = onThisDevice(room, host, restored);
+    const stopRelay = stayAttached(room, socket, () => hostSocket(relayUrl, room.roomCode, hostToken), announceRoomClosed);
+    const stopChecking = checkDeadlinesWhenVisible(room, document);
+    return {
+      ...launched,
+      online: { token: hostToken },
+      close() {
+        stopChecking();
+        stopRelay();
+      },
+    };
+  }
 }
 
 /**
  * The Host's Seat in `room`, and a connection for every other local Seat:
  * `restored` ones now, and each new one as soon as a lobby names it.
+ * `announceRoomClosed` tells the Host's Seat the Room has closed.
  */
-function onThisDevice(room: Room<GameState>, host: Omit<LaunchedSeat, "connection">, restored: RecordSeat[] = []): LaunchedRoom {
+function onThisDevice(
+  room: Room<GameState>,
+  host: Omit<LaunchedSeat, "connection">,
+  restored: RecordSeat[] = [],
+): LaunchedRoom & { announceRoomClosed(): void } {
   const listeners = new Set<(seat: LaunchedSeat) => void>();
   const connected = new Set<SeatId>();
   const connect = (seatId: SeatId, name: string): LaunchedSeat => {
@@ -113,6 +156,7 @@ function onThisDevice(room: Room<GameState>, host: Omit<LaunchedSeat, "connectio
   return {
     roomCode: room.roomCode,
     seats: [{ ...host, connection: hostConnection }, ...restored.map((s) => connect(s.id, s.name))],
+    announceRoomClosed: () => hostConnection.deliver({ t: "roomClosed" }),
     onSeatAdded(cb) {
       listeners.add(cb);
       return () => {
@@ -125,29 +169,21 @@ function onThisDevice(room: Room<GameState>, host: Omit<LaunchedSeat, "connectio
 /**
  * `connection`, with `watch` seeing each message once the Room has finished
  * delivering it: connecting a Seat sends a newer lobby, which must not
- * overtake the one still on its way to the other Seats. Like the Room's own
- * connections, it holds messages for the first subscriber.
+ * overtake the one still on its way to the other Seats. It holds messages
+ * for the first subscriber. `deliver` hands
+ * subscribers a message the Room didn't send, such as `roomClosed`.
  */
-function watched(connection: GameConnection, watch: (msg: RoomMsg) => void): GameConnection {
-  const listeners = new Set<(msg: RoomMsg) => void>();
-  let backlog: RoomMsg[] | null = [];
+function watched(connection: GameConnection, watch: (msg: RoomMsg) => void): GameConnection & { deliver(msg: RoomMsg): void } {
+  const { deliver, add } = heldSubscribers();
   const unsubscribe = connection.onMessage((msg) => {
-    if (backlog) backlog.push(msg);
-    else for (const cb of [...listeners]) cb(msg);
+    deliver(msg);
     queueMicrotask(() => watch(msg));
   });
 
   return {
+    deliver,
     send: (msg) => connection.send(msg),
-    onMessage(cb) {
-      listeners.add(cb);
-      const held = backlog;
-      backlog = null;
-      for (const msg of held ?? []) cb(msg);
-      return () => {
-        listeners.delete(cb);
-      };
-    },
+    onMessage: add,
     close() {
       unsubscribe();
       connection.close();

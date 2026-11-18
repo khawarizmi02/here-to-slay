@@ -45,6 +45,12 @@ export interface GameLayer {
    */
   seatToAct(view: PlayerViewPayload): SeatId | null;
   /**
+   * The Seat whose view this is (the Room uses Seat ids as player ids), or
+   * null for a spectator. A friend back from a refresh mid-game learns their
+   * Seat only from this: a game under way sends no lobby.
+   */
+  viewer(view: PlayerViewPayload): SeatId | null;
+  /**
    * A remote Seat's options in a response window, read from its own view:
    * the Room sends remote Seats no `respond`. Null when it isn't asked.
    */
@@ -83,6 +89,11 @@ export interface LaunchedRoom {
   close?(): void;
 }
 
+/** The Room a pointer names is gone: the relay no longer knows its Room Code. */
+export class RoomClosedError extends Error {
+  override readonly name = "RoomClosedError";
+}
+
 /** How the shell starts a Room, provided by the composition root. */
 export interface Launcher {
   /** Builds a Room on this device, with the player's local Seat. */
@@ -95,6 +106,10 @@ export interface Launcher {
    * no such Room.
    */
   join(roomCode: string, name: string): Promise<LaunchedRoom>;
-  /** Goes back into the Room `pointer` names, after a refresh, with every local Seat. Rejects when it can't. */
+  /**
+   * Goes back into the Room `pointer` names, after a refresh, with every
+   * local Seat. Rejects with a `RoomClosedError` when the Room has closed,
+   * and otherwise when it can't.
+   */
   resume(pointer: RoomPointer): Promise<LaunchedRoom>;
 }

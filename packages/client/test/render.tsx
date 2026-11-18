@@ -1,6 +1,7 @@
 import type { LobbySeat } from "@here-to-slay/protocol";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { expect } from "vitest";
 import { App } from "../src/shell/App.js";
 import type { LaunchedRoom, LaunchedSeat, Launcher } from "../src/shell/game.js";
 import { memoryPointerStore, type RoomPointer } from "../src/shell/pointer.js";
@@ -89,4 +90,14 @@ export async function renderInLobby(seats: LobbySeat[] = [ALICE], you = "s1") {
   await client.user.click(screen.getByRole("button", { name: "Play on this device" }));
   client.connection.receive({ t: "lobby", roomCode: "ABCDE", seats, you: [you] });
   return client;
+}
+
+/**
+ * Waits until a resumed Room's screen shows what its first messages said.
+ * The screen subscribes to its Seat in an effect, which React can run a tick
+ * after "Connecting…" is painted: a message delivered in between shows only
+ * once it does.
+ */
+export async function connected() {
+  await waitFor(() => expect(screen.queryByText("Connecting…")).toBeNull());
 }

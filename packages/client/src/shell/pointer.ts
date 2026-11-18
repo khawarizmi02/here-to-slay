@@ -2,8 +2,7 @@ import type { RoomCode } from "@here-to-slay/protocol";
 
 /**
  * Which Room this device should go back into on load. One per device: a new
- * Room replaces it, and game over and "Leave Room" clear it. The online
- * fields are there for hosting and joining, which aren't built yet.
+ * Room replaces it, and game over, "Leave Room" and the Room closing clear it.
  */
 export interface RoomPointer {
   mode: "offline" | "online";

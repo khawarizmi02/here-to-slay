@@ -1,7 +1,7 @@
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FakeConnection } from "./fake-connection.js";
-import { ALICE, BOT, fakeRoom, renderClient, renderInLobby } from "./render.js";
+import { ALICE, BOT, connected, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
 
@@ -77,6 +77,7 @@ describe("the lobby", () => {
     renderClient({ pointer: FRIEND, resume: () => Promise.resolve(fakeRoom([{ connection, name: "Bob" }])) });
     await screen.findByText("Connecting…");
     connection.receive({ t: "lobby", roomCode: "ABCDE", seats: [ALICE, BOT], you: ["s2"] });
+    await connected();
     expect(screen.getByText("Lobby")).toBeInTheDocument();
     expect(screen.queryByLabelText("Target score")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start game" })).toBeNull();

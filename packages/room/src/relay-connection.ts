@@ -112,12 +112,14 @@ export interface JoinOptions {
  *
  * Besides the Room's messages, it reports what the relay says about the Room:
  * `hostAway` while the Host is disconnected and `hostBack` when it returns
- * (a fresh `update` follows), `roomClosed` when the Host was away too long,
- * and an `error` when the connection is lost. After `roomClosed` or an
- * `error` it is closed.
+ * (it joins again, retaking its Seat in a lobby the Host rebuilt, and a
+ * fresh `lobby` or `update` follows), `roomClosed` when the Host was away too long,
+ * and an `error` when the connection is lost. It is already closed when it
+ * delivers either.
  */
 export class RelayConnection implements GameConnection {
   readonly roomCode: RoomCode;
+  readonly #name: string;
   readonly #socket: RelaySocket;
   readonly #subscribers = new Subscribers();
   #seatToken: SeatToken | null;
@@ -127,9 +129,10 @@ export class RelayConnection implements GameConnection {
   #welcomed: (() => void) | null = null;
   #lost: ((reason: string) => void) | null = null;
 
-  private constructor(socket: RelaySocket, roomCode: RoomCode, seatToken: SeatToken | null) {
+  private constructor(socket: RelaySocket, roomCode: RoomCode, name: string, seatToken: SeatToken | null) {
     this.#socket = socket;
     this.roomCode = roomCode;
+    this.#name = name;
     this.#seatToken = seatToken;
     socket.onMessage((data) => this.#frame(data));
     socket.onClose(() => this.#end(`Lost the connection to Room ${roomCode}`));
@@ -153,7 +156,7 @@ export class RelayConnection implements GameConnection {
     try {
       dialed = await opts.dialer.dial(code, opts.seatToken ?? null);
     } catch (e) {
-      throw new JoinError(`Could not reach the relay: ${e instanceof Error ? e.message : String(e)}`);
+      throw new JoinError(`Could not reach the relay: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
     }
     if ("refused" in dialed) {
       throw new JoinError(
@@ -163,10 +166,10 @@ export class RelayConnection implements GameConnection {
       );
     }
 
-    const connection = new RelayConnection(dialed, code, opts.seatToken ?? null);
+    const connection = new RelayConnection(dialed, code, name.data, opts.seatToken ?? null);
     if (connection.#seatToken === null) await connection.#welcome();
     // Joining again with a seat token is harmless: the Room just sends the Seat its current state.
-    connection.send({ t: "joinRoom", name: name.data });
+    connection.send({ t: "joinRoom", name: connection.#name });
     return connection;
   }
 
@@ -239,8 +242,9 @@ export class RelayConnection implements GameConnection {
         return;
       case "hostBack":
         this.#subscribers.deliver({ t: "hostBack" });
-        // The Host may have refreshed: ask for the current state rather than wait for it.
-        this.send({ t: "resync" });
+        // The Host may have refreshed: join again, which retakes a Seat in a lobby the Host
+        // rebuilt empty, and otherwise just asks for the current state rather than wait for it.
+        this.send({ t: "joinRoom", name: this.#name });
         return;
       case "roomClosed":
         this.#end(`Room ${this.roomCode} has closed: the Host was away too long`, { t: "roomClosed" });
@@ -252,14 +256,15 @@ export class RelayConnection implements GameConnection {
   #end(reason: string, msg: RoomMsg = { t: "error", message: reason }): void {
     if (this.#closed) return;
     this.#endReason = reason;
+    // Closed before the UI hears, so it can tell this end from an error the Room sent.
+    this.#closed = true;
     if (this.#lost) {
       this.#lost(reason);
     } else {
+      // Subscribers are kept, so a UI that subscribes late still gets the reason from the backlog.
       this.#subscribers.deliver(msg);
     }
     this.#welcomed = this.#lost = null;
-    // Subscribers are kept, so a UI that subscribes late still gets the reason from the backlog.
-    this.#closed = true;
     this.#socket.close();
   }
 }

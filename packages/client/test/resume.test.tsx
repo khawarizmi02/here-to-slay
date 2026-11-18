@@ -1,8 +1,9 @@
 import * as toy from "@here-to-slay/toy-engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { RoomClosedError } from "../src/shell/game.js";
 import { FakeConnection } from "./fake-connection.js";
-import { ALICE, BOT, fakeRoom, renderClient, renderInLobby } from "./render.js";
+import { ALICE, BOT, connected, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
 
@@ -42,10 +43,26 @@ describe("loading with a pointer", () => {
 
     await screen.findByText("Connecting…");
     connection.receive({ t: "update", version: 4, events: [], view: toy.getPlayerView(newGame(), "s1") as unknown as Record<string, unknown> });
+    await connected();
     within(screen.getByRole("region", { name: "Your hand" })).getByRole("button", { name: "1 Point" }).click();
     expect(connection.takeSent()).toEqual([
       { t: "action", seat: "s1", action: { type: "PLAY_HERO", player: "s1", card: "point_1#0" }, clientSeq: 0 },
     ]);
+  });
+
+  it("lands on the first screen, with the pointer cleared, when the Room has closed", async () => {
+    const online = { mode: "online", role: "friend", roomCode: "HJK23", name: "Bob", token: "seat-token" } as const;
+    const { pointers } = renderClient({ pointer: online, resume: () => Promise.reject(new RoomClosedError()) });
+    expect(await screen.findByRole("alert")).toHaveTextContent("That Room has closed");
+    expect(screen.getByRole("button", { name: "Join with a Room Code" })).toBeVisible();
+    expect(pointers.load()).toBeNull();
+  });
+
+  it("keeps pointing at an online Room it couldn't reach, so a later load tries again", async () => {
+    const online = { mode: "online", role: "host", roomCode: "HJK23", name: "Alice", token: "host-token" } as const;
+    const { pointers } = renderClient({ pointer: online, resume: () => Promise.reject(new Error("offline")) });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach your Room. Reload to try again.");
+    expect(pointers.load()).toEqual(online);
   });
 
   it("lands on the first screen, with the pointer cleared, when the Room can't be resumed", async () => {

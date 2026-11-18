@@ -1,5 +1,10 @@
 import type { RoomCode, SeatToken } from "@here-to-slay/protocol";
-import { relaySocket, type RelayDialer, type RelaySocket } from "@here-to-slay/room";
+import { relaySocket, type RelayDialer } from "@here-to-slay/room";
+import { RoomClosedError } from "../shell/game.js";
+import type { HostSocket } from "./reconnect.js";
+
+/** The close code the relay sends a Host connection that a newer one replaced. */
+const CLOSE_REPLACED = 4000;
 
 // The browser's side of the relay's HTTP and WebSocket API (TECHNICAL_DESIGN.md §10.5), at `relayUrl` (http or https).
 
@@ -16,9 +21,23 @@ export async function createRelayRoom(relayUrl: string): Promise<RelayRoom> {
   return (await res.json()) as RelayRoom;
 }
 
-/** The Host's WebSocket to its Room, once open. */
-export async function hostSocket(relayUrl: string, roomCode: RoomCode, hostToken: string): Promise<RelaySocket> {
-  return relaySocket(await openWebSocket(socketUrl(relayUrl, roomCode, { hostToken })));
+/** The Host's WebSocket to its Room, once open. Rejects with a `RoomClosedError` when the relay no longer knows the Room. */
+export async function hostSocket(relayUrl: string, roomCode: RoomCode, hostToken: string): Promise<HostSocket> {
+  let ws: WebSocket;
+  try {
+    ws = await openWebSocket(socketUrl(relayUrl, roomCode, { hostToken }));
+  } catch (e) {
+    // As for friends: ask again plainly to learn why.
+    const res = await fetch(roomUrl(relayUrl, roomCode));
+    if (res.status === 404) throw roomClosed(roomCode, e);
+    throw e;
+  }
+  let replaced = false;
+  // Listening before relaySocket does, so this is known by the time its close is reported.
+  ws.addEventListener("close", (event) => {
+    replaced = event.code === CLOSE_REPLACED;
+  });
+  return Object.defineProperty(relaySocket(ws), "replaced", { get: () => replaced });
 }
 
 /**
@@ -39,6 +58,26 @@ export function browserDialer(relayUrl: string): RelayDialer {
       }
     },
   };
+}
+
+/**
+ * `dialer`, rejecting with a `RoomClosedError` when the relay no longer
+ * knows the Room: for coming back to a Seat, where a Room that has gone
+ * means it closed, rather than a mistyped Room Code.
+ */
+export function rejoiningDialer(dialer: RelayDialer): RelayDialer {
+  return {
+    async dial(roomCode, seatToken) {
+      const dialed = await dialer.dial(roomCode, seatToken);
+      if ("refused" in dialed && dialed.refused === 404) throw roomClosed(roomCode);
+      return dialed;
+    },
+  };
+}
+
+/** What a 404 from the relay means to a tab coming back to its Room. */
+function roomClosed(roomCode: RoomCode, cause?: unknown): RoomClosedError {
+  return new RoomClosedError(`Room ${roomCode} has closed`, { cause });
 }
 
 function roomUrl(relayUrl: string, roomCode: RoomCode): URL {
