@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { DEFAULT_TOY_CONFIG, WISH_OPTIONS, type Action, type GameEvent, type PlayerView, type ToyCard, type ToyCardDefId, type ToyConfig, type ToyPendingDecision } from "@here-to-slay/toy-engine";
 import { Countdown } from "../shell/Countdown.js";
@@ -38,9 +39,12 @@ export const toyGame: GameLayer = {
  * from the shell, which reads a local Seat's from the Room's `respond`. It
  * holds no game rules.
  */
-export function ToyGame({ view: payload, log, responseOptions, deadline, act, onGameOver }: GameProps) {
+export function ToyGame({ view: payload, log, playing, responseOptions, deadline, act, onGameOver }: GameProps) {
   const view = payload as unknown as PlayerView;
+  // While an event plays the view is out of date: what it offers may no longer be legal.
+  const legal = playing ? [] : view.legalActions;
   const events = log as unknown as GameEvent[];
+  const playingLine = playing && logLine(playing as unknown as GameEvent, view);
   const nameOf = (id: string) => nameIn(view, id);
   const winner = view.winner;
   useEffect(() => {
@@ -57,8 +61,8 @@ export function ToyGame({ view: payload, log, responseOptions, deadline, act, on
     );
   }
 
-  const draw = view.legalActions.find((a) => a.type === "DRAW_CARD");
-  const playFor = (card: ToyCard) => view.legalActions.find((a) => a.type === "PLAY_HERO" && a.card === card.id);
+  const draw = legal.find((a) => a.type === "DRAW_CARD");
+  const playFor = (card: ToyCard) => legal.find((a) => a.type === "PLAY_HERO" && a.card === card.id);
   const decision = view.pendingDecision;
 
   return (
@@ -68,10 +72,26 @@ export function ToyGame({ view: payload, log, responseOptions, deadline, act, on
       </p>
       <Scores view={view} />
 
+      {playing && (
+        <section aria-label="Now playing" className="now-playing">
+          {/* Keyed by the event's place in the log, so each one plays its own highlight. */}
+          <motion.p key={events.length} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}>
+            {playingLine}
+          </motion.p>
+        </section>
+      )}
+
       {view.responseWindow && (
         <p>
           {nameOf(view.responseWindow.player)} played {CARD_NAMES[view.responseWindow.card.def]}
           {view.responseWindow.bonus > 0 && ` (+${view.responseWindow.bonus})`}
+        </p>
+      )}
+
+      {/* Names nobody: who is still awaited would hint at who holds a usable card. */}
+      {view.responseWindow && !view.responseWindow.awaiting.includes(view.me) && (
+        <p role="status" className="waiting-responses">
+          Waiting for responses…
         </p>
       )}
 
@@ -87,7 +107,7 @@ export function ToyGame({ view: payload, log, responseOptions, deadline, act, on
       )}
 
       {decision && "options" in decision ? (
-        <DecisionModal decision={decision} legal={view.legalActions} deadline={deadline} act={act} />
+        <DecisionModal decision={decision} legal={legal} deadline={deadline} act={act} />
       ) : (
         decision && <p>Waiting for {nameOf(decision.player)} to choose…</p>
       )}

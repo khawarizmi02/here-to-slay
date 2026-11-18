@@ -232,3 +232,28 @@ describe("a refresh mid-game", () => {
     expect(bob.takeSent()).toEqual([{ t: "confirmPassDevice", seat: "s2" }]);
   });
 });
+
+describe("animation with several Seats", () => {
+  it("animates only the Seat on screen: the next player sees their latest view at once", async () => {
+    const { alice, bob, show, user } = await aliceAndBob();
+    show(newGame());
+    await user.click(screen.getByRole("button", { name: "I'm Alice" }));
+
+    const result = toy.applyAction(newGame(), { type: "PLAY_HERO", player: "s1", card: "point_1#0" });
+    if (!result.ok) throw new Error(result.error);
+    for (const [connection, seat] of [[alice, "s1"], [bob, "s2"]] as const) {
+      connection.receive({
+        t: "update",
+        version: 2,
+        events: toy.getPlayerEvents(result.events, seat),
+        view: toy.getPlayerView(result.state, seat) as unknown as Record<string, unknown>,
+      });
+    }
+    expect(screen.getByRole("region", { name: "Now playing" })).toHaveTextContent("You played 1 Point");
+
+    bob.receive({ t: "passDevice", seat: "s2", name: "Bob" });
+    await user.click(screen.getByRole("button", { name: "I'm Bob" }));
+    expect(screen.queryByRole("region", { name: "Now playing" })).toBeNull();
+    expect(within(screen.getByRole("list", { name: "Game log" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Alice played 1 Point"]);
+  });
+});

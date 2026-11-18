@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { gameOver, hostingNotice, takeOneAction } from "./play.js";
+import { gameOver, hostingNotice, skipAnimations, takeOneAction } from "./play.js";
 
 const waitingForHost = (page: Page) => page.getByRole("status").filter({ hasText: "Waiting for Host…" });
 const hand = (page: Page) => page.getByRole("region", { name: "Your hand" });
@@ -17,7 +17,7 @@ async function play(host: Page, friend: Page, moves: number): Promise<void> {
  * Refreshes are short hiccups online too (TECHNICAL_DESIGN.md §10.7): a
  * Host refresh in the lobby, a friend refresh mid-game and the Host away
  * mid-game, each recovered with nobody rejoining by hand. Each player has
- * their own browser context, as in the online run.
+ * their own browser context, as in the online run, with animations skipped.
  */
 test("a Host and a friend come back from refreshes and play on to game over", async ({ browser }) => {
   test.setTimeout(240_000);
@@ -33,11 +33,14 @@ test("a Host and a friend come back from refreshes and play on to game over", as
   await friend.getByLabel("Room Code").fill(code);
   await friend.getByRole("button", { name: "Join with a Room Code" }).click();
   await expect(host.getByRole("listitem")).toHaveCount(2);
+  await skipAnimations(host);
+  await skipAnimations(friend);
 
   // The Host refreshes in the lobby: an empty lobby under the same Room Code, which the friend retakes by themself.
   await host.reload();
   await expect(host.locator(".room-code")).toHaveText(code);
   await expect(host.getByRole("listitem")).toHaveCount(2);
+  await skipAnimations(host);
   await expect(friend.getByRole("listitem")).toHaveText([/Alice/, /Bob/]);
   await expect(waitingForHost(friend)).toHaveCount(0);
   // Long enough that no card ends the game before the refreshes below: a card scores at most 3.
@@ -50,6 +53,7 @@ test("a Host and a friend come back from refreshes and play on to game over", as
   const bobsHand = await hand(friend).innerText();
   await friend.reload();
   await expect(hand(friend)).toHaveText(bobsHand, { useInnerText: true });
+  await skipAnimations(friend);
 
   // The Host's tab goes away mid-game: the friend waits for them, and the game resumes when they're back.
   await play(host, friend, 2);
@@ -59,6 +63,7 @@ test("a Host and a friend come back from refreshes and play on to game over", as
   await expect(waitingForHost(friend)).toHaveCount(0);
   await expect(hostingNotice(host)).toBeVisible();
   await expect(hand(host)).toBeVisible();
+  await skipAnimations(host);
 
   for (let n = 0; n < 500; n++) {
     if ((await gameOver(host).isVisible()) && (await gameOver(friend).isVisible())) break;

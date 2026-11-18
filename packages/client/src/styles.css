@@ -71,3 +71,24 @@ button {
   border: 2px solid currentColor;
   border-radius: 6px;
 }
+
+.skip-animations {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* The event the animation queue is playing: a placeholder until real card animation. */
+.now-playing p {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 4px solid #d4a017;
+  background: color-mix(in srgb, #d4a017 15%, Canvas);
+}
+
+.countdown-bar,
+.waiting-responses {
+  margin: 8px auto;
+  max-width: 640px;
+  font-style: italic;
+}
