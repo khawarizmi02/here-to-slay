@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { browserLauncher } from "./root/launcher.js";
+import { roomRandom } from "./root/seed.js";
 import { App } from "./shell/App.js";
 import { storagePointerStore } from "./shell/pointer.js";
 import { toyGame } from "./toy/ToyGame.js";
@@ -13,8 +14,11 @@ function relayUrl(): string {
   return url;
 }
 
+/** Only the end-to-end runs' build (`vite --mode e2e`) reads a seed from the URL. */
+const random = roomRandom(location.search, { seedable: import.meta.env.MODE === "e2e" });
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App launcher={browserLauncher(relayUrl())} pointers={storagePointerStore(localStorage)} game={toyGame} />
+    <App launcher={browserLauncher(relayUrl(), random)} pointers={storagePointerStore(localStorage)} game={toyGame} />
   </StrictMode>,
 );

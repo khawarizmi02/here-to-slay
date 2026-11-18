@@ -3,6 +3,8 @@ interface ImportMetaEnv {
   readonly VITE_RELAY_URL?: string;
   /** Whether this is the dev server rather than a build. */
   readonly DEV: boolean;
+  /** Vite's mode: `e2e` for the end-to-end runs, which seed the Room from the URL. */
+  readonly MODE: string;
 }
 
 interface ImportMeta {

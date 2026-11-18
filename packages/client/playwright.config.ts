@@ -17,7 +17,8 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: `vite --port ${PORT} --strictPort`,
+      // The e2e mode seeds the Room's random from the URL.
+      command: `vite --mode e2e --port ${PORT} --strictPort`,
       url: `http://localhost:${PORT}`,
       env: { VITE_RELAY_URL: `http://localhost:${RELAY_PORT}` },
       reuseExistingServer: false,

@@ -1,8 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { gameOver, hostingNotice, skipAnimations, takeOneAction } from "./play.js";
+import { gameOver, hand, hostingNotice, skipAnimations, takeOneAction, waitingForHost } from "./play.js";
 
-const waitingForHost = (page: Page) => page.getByRole("status").filter({ hasText: "Waiting for Host…" });
-const hand = (page: Page) => page.getByRole("region", { name: "Your hand" });
 
 /** Takes `moves` actions between the two players, as the online run does. */
 async function play(host: Page, friend: Page, moves: number): Promise<void> {
