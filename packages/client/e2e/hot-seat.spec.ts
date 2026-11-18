@@ -29,7 +29,7 @@ test("two players share one device, through refreshes, to game over", async ({ p
     await expect(step(page)).toHaveText("Pass the device to Alice");
 
     for (let n = 0; n < 300 && !(await gameOver(page).isVisible()); n++) {
-      await expect(step(page).or(passButton(page)).or(page.getByRole("dialog")).or(enabledMove(page)).or(gameOver(page)).first()).toBeVisible();
+      await expect(step(page).or(passButton(page)).or(page.getByRole("dialog").getByRole("button").and(page.locator(":enabled"))).or(enabledMove(page)).or(gameOver(page)).first()).toBeVisible();
       if (await step(page).isVisible()) {
         await expect(hand(page)).toHaveCount(0);
         const name = (await step(page).innerText()).replace("Pass the device to ", "");
@@ -66,7 +66,7 @@ function enabledMove(page: Page) {
 }
 
 async function takeOneAction(page: Page): Promise<void> {
-  const decision = page.getByRole("dialog").getByRole("button").first();
+  const decision = page.getByRole("dialog").getByRole("button").and(page.locator(":enabled")).first();
   const card = hand(page).getByRole("button").and(page.locator(":enabled")).first();
   const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
   for (const target of [passButton(page), decision, card, draw]) {

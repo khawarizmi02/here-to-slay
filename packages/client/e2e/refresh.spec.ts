@@ -70,7 +70,7 @@ test("a refresh mid-game restores the same game, even in an open response window
     await refreshAndCompare(page);
 
     for (let step = 0; step < 200 && !(await gameOver(page).isVisible()); step++) {
-      await expect(passButton(page).or(page.getByRole("dialog")).or(enabledMove(page)).or(gameOver(page)).first()).toBeVisible();
+      await expect(passButton(page).or(page.getByRole("dialog").getByRole("button").and(page.locator(":enabled"))).or(enabledMove(page)).or(gameOver(page)).first()).toBeVisible();
       if (!refreshedInWindow && (await passButton(page).isVisible())) {
         await refreshAndCompare(page);
         await expect(passButton(page)).toBeVisible();
@@ -94,7 +94,7 @@ function enabledMove(page: Page) {
 }
 
 async function takeOneAction(page: Page): Promise<void> {
-  const decision = page.getByRole("dialog").getByRole("button").first();
+  const decision = page.getByRole("dialog").getByRole("button").and(page.locator(":enabled")).first();
   const card = page.getByRole("region", { name: "Your hand" }).getByRole("button").and(page.locator(":enabled")).first();
   const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
   for (const target of [passButton(page), decision, card, draw]) {

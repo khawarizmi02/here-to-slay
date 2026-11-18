@@ -1,5 +1,5 @@
 import * as toy from "@here-to-slay/toy-engine";
-import { cleanup, screen, within } from "@testing-library/react";
+import { act, cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FakeConnection } from "./fake-connection.js";
 import { ALICE, BOT, renderInLobby } from "./render.js";
@@ -153,6 +153,8 @@ describe("the game log", () => {
     const connection = await inGame(newGame());
     expect(screen.getByText("Game log").closest("details")).not.toHaveAttribute("open");
 
+    // What the log holds, not how it plays: the animation queue has its own tests.
+    act(() => screen.getByRole("checkbox", { name: "Skip animations" }).click());
     const played = step(newGame(), { type: "PLAY_HERO", player: "s1", card: "point_1#0" }, "s1");
     connection.receive(played.msg);
     connection.receive(step(played.state, { type: "PASS", player: "s2" }, "s1").msg);

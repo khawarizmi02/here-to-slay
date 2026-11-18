@@ -1,6 +1,7 @@
 import type { Action, ClientMsg, ConfigPatch, GameEvent, LobbySeat, PlayerViewPayload, RoomMsg, SeatId } from "@here-to-slay/protocol";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { LaunchedSeat } from "./game.js";
+import { createPlayback } from "./playback.js";
 
 /** What one Seat on this device knows, built only from the messages its connection receives. */
 export interface SeatState {
@@ -8,10 +9,12 @@ export interface SeatState {
   seatId: SeatId | null;
   /** The lobby's Seats, until the game starts. */
   lobby: LobbySeat[] | null;
-  /** The Seat's latest PlayerView. The shell never reads inside it. */
+  /** The PlayerView on show: the latest, once the animation queue has played what came before it. The shell never reads inside it. */
   view: PlayerViewPayload | null;
-  /** Every update's events since this connection opened, oldest first, as the Room filtered them for this Seat. */
+  /** Every event played or shown since this connection opened, oldest first, as the Room filtered them for this Seat. */
   log: GameEvent[];
+  /** The event the animation queue is playing now, the last in `log`, or null when nothing is playing. */
+  playing: GameEvent | null;
   /** The Seat's options in a response window, from the Room's `respond`. Cleared by the next update. */
   responseOptions: Action[] | null;
   /** When the Room answers for this remote Seat (a `Date.now()` time), from its latest `countdown`. Cleared by the next update. */
@@ -52,6 +55,8 @@ export interface DeviceSeat {
   act(action: Action): void;
   /** Tells the Room the player it asked to respond has the device. */
   confirmPassDevice(): void;
+  /** Whether updates animate, as they do only for the Seat on screen. Turning it off shows the latest view at once. */
+  setAnimated(animated: boolean): void;
   close(): void;
 }
 
@@ -65,11 +70,13 @@ export function connectSeat(
     lobby: null,
     view: null,
     log: [],
+    playing: null,
     responseOptions: null,
     deadline: null,
     error: null,
     hostAway: false,
   }));
+  const playback = createPlayback((shown) => store.setState(shown), () => store.getState());
   let clientSeq = 0;
   let unsubscribe = () => {};
   /** Sends what the player asked for. A refusal of their last request no longer applies, so its reason goes. */
@@ -88,14 +95,9 @@ export function connectSeat(
         store.setState({ seatId: msg.you[0] ?? null, lobby: msg.seats, error: null });
         return;
       case "update":
-        store.setState((s) => ({
-          seatId: s.seatId ?? viewer(msg.view),
-          view: msg.view,
-          log: [...s.log, ...msg.events],
-          responseOptions: null,
-          deadline: null,
-          error: null,
-        }));
+        // What the update replaces goes now: a countdown or respond after it mustn't wait behind its animation.
+        store.setState((s) => ({ seatId: s.seatId ?? viewer(msg.view), responseOptions: null, deadline: null, error: null }));
+        playback.receive(msg);
         listener.update(msg.view);
         return;
       case "passDevice":
@@ -143,7 +145,9 @@ export function connectSeat(
     confirmPassDevice() {
       withSeat((seat) => send({ t: "confirmPassDevice", seat }));
     },
+    setAnimated: (animated) => playback.setAnimated(animated),
     close() {
+      playback.stop();
       unsubscribe();
       connection.close();
     },

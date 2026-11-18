@@ -10,15 +10,27 @@ import type { RoomPointer } from "./pointer.js";
  */
 export interface GameProps {
   view: PlayerViewPayload;
-  /** The events of every update so far, oldest first, filtered for this Seat. */
+  /** The events played or shown so far, oldest first, filtered for this Seat. */
   log: GameEvent[];
+  /**
+   * The event the animation queue is playing now, the last in `log`, or null.
+   * `view` is still the one from before its update: it shows once the
+   * update's events have played. Until then the shell passes no
+   * `responseOptions`, and the game layer offers no actions from the view,
+   * because they may no longer be legal.
+   */
+  playing: GameEvent | null;
   /**
    * The Seat's options in a response window, or null when the Room isn't
    * asking it: from the Room's `respond` for a local Seat, and from the game
    * layer's `responseOptions` for a remote one.
    */
   responseOptions: Action[] | null;
-  /** When the Room answers for a remote Seat that hasn't (a `Date.now()` time), from its `countdown`; null when nothing is timed. */
+  /**
+   * When the Room answers for a remote Seat that hasn't (a `Date.now()` time),
+   * from its `countdown`; null when nothing is timed. While an event plays the
+   * shell shows the countdown itself, and this is null.
+   */
   deadline: number | null;
   act(action: Action): void;
   /** Called once the game layer sees the game is over: nothing is left to resume. */

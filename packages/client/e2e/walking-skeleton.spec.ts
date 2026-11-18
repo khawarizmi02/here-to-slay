@@ -43,7 +43,7 @@ test("the Host's rules set the game: hand size and target score", async ({ page 
 
 async function takeOneAction(page: Page): Promise<void> {
   const pass = page.getByRole("region", { name: "Respond" }).getByRole("button", { name: "Pass" });
-  const decision = page.getByRole("dialog").getByRole("button").first();
+  const decision = page.getByRole("dialog").getByRole("button").and(page.locator(":enabled")).first();
   const card = page.getByRole("region", { name: "Your hand" }).getByRole("button").and(page.locator(":enabled")).first();
   const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
 
