@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { gameOver, hostingNotice, takeOneAction } from "./play.js";
+import { gameOver, hostingNotice, skipAnimations, takeOneAction } from "./play.js";
 
 /**
  * A Host and a friend, each in their own browser context (tabs in one
  * profile share the Room pointer), play through the relay to game over.
  * The friend types the Room Code in lower case with stray spaces.
- * Policy as in the walking skeleton.
+ * Policy as in the walking skeleton, with animations skipped.
  */
 test("a Host and a friend play through the relay to game over", async ({ browser }) => {
   test.setTimeout(240_000);
@@ -18,6 +18,7 @@ test("a Host and a friend play through the relay to game over", async ({ browser
   const code = (await host.locator(".room-code").innerText()).trim();
   expect(code).toMatch(/^[A-HJ-NP-Z2-9]{5}$/);
   await expect(hostingNotice(host)).toBeVisible();
+  await skipAnimations(host);
   await host.getByLabel("Target score").fill("3");
 
   await friend.goto("/");
@@ -26,6 +27,7 @@ test("a Host and a friend play through the relay to game over", async ({ browser
   await friend.getByRole("button", { name: "Join with a Room Code" }).click();
   await expect(friend.getByRole("listitem")).toHaveCount(2);
   await expect(friend.locator(".room-code")).toHaveText(code);
+  await skipAnimations(friend);
   // A friend sees none of the Host's controls, and isn't hosting.
   await expect(friend.getByRole("button", { name: "Start game" })).toHaveCount(0);
   await expect(friend.getByRole("button", { name: "Add a bot" })).toHaveCount(0);

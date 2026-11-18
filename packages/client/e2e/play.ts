@@ -6,6 +6,15 @@ export const gameOver = (page: Page) => page.getByRole("heading", { name: /wins!
 export const respond = (page: Page) => page.getByRole("region", { name: "Respond" });
 export const hostingNotice = (page: Page) => page.getByText("Keep this tab open: you are hosting");
 
+/**
+ * Ticks "Skip animations": the online runs play whole games, and leave the
+ * animation queue to the client tests. The toggle isn't kept, so a page
+ * ticks it again after each load.
+ */
+export async function skipAnimations(page: Page): Promise<void> {
+  await page.getByRole("checkbox", { name: "Skip animations" }).check();
+}
+
 /** The screen's text, without the countdown, which changes by itself. */
 const screenText = (page: Page) =>
   page.locator("main").evaluate((main) => {
