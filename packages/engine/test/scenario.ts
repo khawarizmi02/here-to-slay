@@ -10,6 +10,11 @@ import { players, smallSet } from "./cards.js";
  * `item_plain#0` and `#1`, and a Mask `item_mask_thief`, then any `extra` card JSON.
  */
 export function engineWith(effects: Record<string, Effect> = {}, leaderBonus = 0, extra: unknown[] = []) {
+  return createRoomEngine(defsWith(effects, leaderBonus, extra));
+}
+
+/** The card definitions `engineWith` builds its engine from. */
+export function defsWith(effects: Record<string, Effect> = {}, leaderBonus = 0, extra: unknown[] = []) {
   const heroes = Object.entries(effects).map(([name, effect]) => ({
     id: `hero_${name}`,
     type: "hero",
@@ -25,7 +30,7 @@ export function engineWith(effects: Record<string, Effect> = {}, leaderBonus = 0
     { id: "item_plain", type: "item", name: "Plain item", text: "", copies: 2 },
     { id: "item_mask_thief", type: "item", name: "Thief mask", text: "", copies: 1, maskClass: "thief" },
   ];
-  return createRoomEngine(loadCardDefs([...base, ...heroes, ...items, ...extra]));
+  return loadCardDefs([...base, ...heroes, ...items, ...extra]);
 }
 
 export type Engine = ReturnType<typeof createRoomEngine>;

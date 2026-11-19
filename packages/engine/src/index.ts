@@ -7,4 +7,5 @@ export { createGame, MIN_PLAYERS, MAX_PLAYERS, type CreateGameOptions } from "./
 export { DEFAULT_CONFIG, RuleConfigSchema, resolveConfig, type RuleConfig } from "./config.js";
 export { createRng, nextFloat, nextInt, rollD6, shuffle, type RngState } from "./rng.js";
 export { describeRequirement } from "./blocked.js";
+export { createEasyBot, type EasyBot } from "./easy-bot.js";
 export * from "./types.js";
