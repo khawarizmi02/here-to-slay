@@ -118,6 +118,8 @@ describe("timers for remote Seats", () => {
     await game.wait(8_000);
     // Bob plays a wish; nobody can answer it, and Bob lets the decision time out too.
     await game.act("Bob", { type: "PLAY_HERO", card: "wish#0" });
+    // Alice holds nothing to answer it with: she is passed for after her Response Delay.
+    await game.wait(1_500);
     expect(game.view().pendingDecision).toEqual({ player: game.seat("Bob") });
     await game.wait(7_999);
     expect(game.view().phase).toBe("decision");
@@ -147,6 +149,8 @@ describe("timers for remote Seats", () => {
     const game = await online({ seats: ["Bob"], deck, engine: discarding, random: () => 0.9, store });
     await game.act("Alice", { type: "DRAW_CARD" });
     await game.act("Bob", { type: "PLAY_HERO", card: "wish#0" });
+    // Alice is passed for after her Response Delay (2,300 ms); then Bob's decision times out.
+    await game.wait(2_300);
     await game.wait(8_000);
     await game.room.whenSaved();
     expect((await store.load(game.roomCode))!.actions.at(-1)).toEqual({
