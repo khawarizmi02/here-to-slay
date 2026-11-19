@@ -5,6 +5,8 @@ import { expect, type Page } from "@playwright/test";
 export const gameOver = (page: Page) => page.getByRole("heading", { name: /wins!$/ });
 export const respond = (page: Page) => page.getByRole("region", { name: "Respond" });
 export const hostingNotice = (page: Page) => page.getByText("Keep this tab open: you are hosting");
+export const waitingForHost = (page: Page) => page.getByRole("status").filter({ hasText: "Waiting for Host…" });
+export const hand = (page: Page) => page.getByRole("region", { name: "Your hand" });
 
 /**
  * Ticks "Skip animations": the online runs play whole games, and leave the

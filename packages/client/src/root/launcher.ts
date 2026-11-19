@@ -21,15 +21,15 @@ const engine: RoomEngine<GameState> = toyRoomEngine;
 
 /**
  * The composition root: the only code that touches the Room. It builds Rooms
- * in this tab with the browser's clock, randomness and IndexedDB, reaches
- * the relay at `relayUrl` for online Rooms, and hands the shell nothing but
- * connections.
+ * in this tab with the browser's clock, the given randomness and IndexedDB,
+ * reaches the relay at `relayUrl` for online Rooms, and hands the shell
+ * nothing but connections.
  */
-export function browserLauncher(relayUrl: string): Launcher {
+export function browserLauncher(relayUrl: string, random: () => number): Launcher {
   const roomOptions = {
     engine,
     clock: { now: () => Date.now() },
-    random: Math.random,
+    random,
     // The DOM types its handlers as taking an event, which the store's handlers ignore.
     store: new IndexedDbActionLogStore(indexedDB as unknown as IdbFactoryLike),
   };
