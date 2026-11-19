@@ -2,6 +2,7 @@ import { placeholderCardDefs } from "@here-to-slay/cards";
 import type { ConfigPatch } from "@here-to-slay/protocol";
 import { describe, expect, it } from "vitest";
 import { createRng, createRoomEngine, nextInt, type Action, type ApplyResult, type CardIndex, type CardInstanceId, type GameState, type RngState } from "../src/index.js";
+import { getBlockedActions } from "../src/blocked.js";
 import { players } from "./cards.js";
 
 /**
@@ -75,6 +76,26 @@ export function stateViolations(defs: CardIndex, state: GameState, cardCount: nu
   return problems;
 }
 
+/** The card, monster or hero a turn action is about, as a blocked action's `subject`. */
+function subjectOf(action: Action): string | undefined {
+  if ("card" in action) return action.card;
+  if ("monster" in action) return action.monster;
+  if ("hero" in action) return action.hero;
+  return undefined;
+}
+
+/**
+ * The ADR-0004 invariants about `player`'s blocked actions: none is also
+ * legal, and only the player with turn actions to take has any.
+ */
+export function blockedViolations(defs: CardIndex, state: GameState, player: string, legal: readonly Action[]): string[] {
+  const blocked = getBlockedActions(defs, state, player);
+  if (blocked.length === 0) return [];
+  if (!legal.some((a) => a.type === "END_TURN")) return [`${player} has blocked actions but no turn actions`];
+  const offered = new Set(legal.map((a) => `${a.type} ${subjectOf(a) ?? ""}`));
+  return blocked.filter((b) => offered.has(`${b.type} ${b.subject ?? ""}`)).map((b) => `${b.type} ${b.subject ?? ""} is both legal and blocked for ${player}`);
+}
+
 export interface FuzzResult {
   seed: string;
   /** Every action played, PASSes included. */
@@ -113,7 +134,10 @@ export function fuzzGame(seed: string, playerCount: number, config: ConfigPatch 
 
       const results = new Map<Action, ApplyResult>();
       for (const p of state.players) {
-        for (const action of engine.getLegalActions(state, p.id)) {
+        const legal = engine.getLegalActions(state, p.id);
+        const blocked = blockedViolations(FUZZ_DEFS, state, p.id, legal);
+        if (blocked.length > 0) return fail(blocked.join("; "));
+        for (const action of legal) {
           const r = engine.applyAction(state, action);
           if (!r.ok) return fail(`legal ${JSON.stringify(action)} was rejected: ${r.error}`);
           results.set(action, r);

@@ -6,4 +6,5 @@ export { createRoomEngine, cardDefsVersion, type BoundEngine } from "./room-engi
 export { createGame, MIN_PLAYERS, MAX_PLAYERS, type CreateGameOptions } from "./setup.js";
 export { DEFAULT_CONFIG, RuleConfigSchema, resolveConfig, type RuleConfig } from "./config.js";
 export { createRng, nextFloat, nextInt, rollD6, shuffle, type RngState } from "./rng.js";
+export { describeRequirement } from "./blocked.js";
 export * from "./types.js";

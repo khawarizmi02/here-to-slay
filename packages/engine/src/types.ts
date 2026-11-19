@@ -1,4 +1,4 @@
-import type { CardDef, CardDefId, Effect } from "@here-to-slay/cards";
+import type { CardDef, CardDefId, CostedAction, Effect } from "@here-to-slay/cards";
 import type { Action, CardInstanceId, PlayerId } from "@here-to-slay/protocol";
 import type { RuleConfig } from "./config.js";
 import type { RngState } from "./rng.js";
@@ -424,4 +424,23 @@ export type PlayerView = {
   winReason: "monsters" | "classes" | null;
   /** Everything the viewer may do now; empty for a spectator. */
   legalActions: Action[];
+  /**
+   * The turn actions the viewer can see as controls but can't take now, each
+   * with a reason to show on the disabled control (§12.2, ADR-0004). Empty
+   * unless the viewer is the active player in the action phase with nothing
+   * pending.
+   */
+  blockedActions: BlockedAction[];
+};
+
+/**
+ * A turn action the viewer can't take now. `subject` is the hand card,
+ * face-up monster or party hero the control belongs to; Draw and Discard and
+ * Redraw have none. Never also in `legalActions` (matching on type and the
+ * card, monster or hero).
+ */
+export type BlockedAction = {
+  type: CostedAction;
+  subject?: CardInstanceId;
+  reason: string;
 };

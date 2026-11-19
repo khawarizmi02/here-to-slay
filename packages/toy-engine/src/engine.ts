@@ -299,6 +299,7 @@ export function getPlayerView(state: GameState, playerId: PlayerId | "spectator"
     pendingDecision: decision === null ? null : decision.player === playerId ? decision : { player: decision.player },
     winner: state.winner,
     legalActions: me ? getLegalActions(state, me.id) : [],
+    blockedActions: [],
   });
 }
 
