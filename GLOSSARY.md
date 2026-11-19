@@ -13,7 +13,7 @@ A pause in which several players may each answer with a card or pass. A Challeng
 _Avoid_: Interrupt, prompt (a Response Window is not a Decision)
 
 **Response Delay**:
-The random 0.5–2.5 s that a pass in a Response Window waits before it lands, so its timing doesn't show whether the Seat held a usable card. It covers a remote Seat's pass, a bot's response, and the Room's automatic pass for a local Seat, but only while the Room has a remote Seat. Rooms with only local Seats and bots have no Response Delay.
+The random 0.5–2.5 s that a pass in a Response Window waits before it lands, so its timing doesn't show whether the Seat held a usable card. It covers a remote Seat's pass, a bot's response, and a local Seat's pass (automatic or chosen), but only while the Room has a remote Seat. A pass made before the delay is up waits until it is. Rooms with only local Seats and bots have no Response Delay.
 _Avoid_: Bot delay, response timer (the countdown a Seat with a usable card sees is separate)
 
 ## Multiplayer
