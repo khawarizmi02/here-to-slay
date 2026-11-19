@@ -44,7 +44,8 @@ describe("a friend coming back", () => {
     // And it is still his to play.
     bob.send({ t: "action", seat: game.seat("Bob"), action: { type: "PLAY_HERO", player, card: "point_2#0" }, clientSeq: 1 });
     await settle();
-    // Alice holds nothing to answer it with, so it scores at once.
+    // Alice holds nothing to answer it with, so it scores once her Response Delay is up.
+    await game.wait(2_500);
     expect(game.view().players[1]!.score).toBe(2);
   });
 
@@ -73,7 +74,8 @@ describe("a friend gone for 2 minutes", () => {
     expect(game.view().phase).toBe("action");
 
     await game.wait(1);
-    // The bot played Bob's point_2, which scored: Alice holds nothing to answer it with.
+    // The bot played Bob's point_2, which scored once Alice's Response Delay was up: she holds nothing to answer it with.
+    await game.wait(2_500);
     expect(game.view().players[1]!.score).toBe(2);
     expect(game.view().activePlayer).toBe(game.seat("Alice"));
   });
@@ -115,9 +117,10 @@ describe("a friend gone for 2 minutes", () => {
     await settle();
     expect(bob.last("actionRejected")).toEqual({ t: "actionRejected", clientSeq: 7, error: "A bot is playing your Seat until the turn ends" });
 
-    // Alice passes; Bob's point scores, and his turn ends.
+    // Alice passes; once her Response Delay is up, Bob's point scores, and his turn ends.
     game.host.send({ t: "confirmPassDevice", seat: game.seat("Alice") });
     await game.act("Alice", { type: "PASS" });
+    await game.wait(2_500);
     expect(game.view().players[1]!.score).toBe(2);
     expect(game.view().activePlayer).toBe(game.seat("Alice"));
 
@@ -147,7 +150,8 @@ describe("a friend gone for 2 minutes", () => {
     await game.act("Alice", { type: "DRAW_CARD" });
     await drop(game, "Bob");
     await game.wait(SEAT_HOLD_MS);
-    // The bot played Bob's point_1; Alice holds nothing to answer it with, so the turn is hers again.
+    await game.wait(2_500);
+    // The bot played Bob's point_1; Alice holds nothing to answer it with, so after her Response Delay the turn is hers again.
     expect(game.view().activePlayer).toBe(game.seat("Alice"));
     const bob = await rejoin(game, "Bob");
 
@@ -232,6 +236,9 @@ describe("the Host refreshing over the relay", () => {
     timers.fireDue();
     expect(viewOf(host.last("update")).phase).toBe("action");
     clock.advance(1);
+    timers.fireDue();
+    // The bot played Bob's point_2, which scores once Alice's Response Delay is up.
+    clock.advance(2_500);
     timers.fireDue();
     expect(viewOf(host.last("update")).players[1]!.score).toBe(2);
   });

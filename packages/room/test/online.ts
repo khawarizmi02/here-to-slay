@@ -12,7 +12,10 @@ import { Client, FakeClock, FakeTimers, fixedDeck, viewOf } from "./harness.js";
 export const player = "ignored-by-room";
 
 export interface Options {
-  /** Names of the Seats after the Host's, in Seat order: "bot" adds a bot, anything else a friend. */
+  /**
+   * Names of the Seats after the Host's, in Seat order: "bot" adds a bot,
+   * "local:<name>" a local Seat on the Host's device, anything else a friend.
+   */
   seats: string[];
   deck: toy.ToyCardDefId[];
   config?: Record<string, number>;
@@ -47,6 +50,12 @@ export async function online(opts: Options) {
       host.send({ t: "addBot", difficulty: "easy" });
       continue;
     }
+    if (name.startsWith("local:")) {
+      host.send({ t: "addLocalSeat", name: localName(name) });
+      const added = host.last("lobby").seats.at(-1)!;
+      clients.set(localName(name), new Client(room.connectLocalSeat(added.id)));
+      continue;
+    }
     clients.set(name, new Client(await RelayConnection.join({ dialer: relay.dialer, roomCode, name })));
     await settle();
   }
@@ -54,7 +63,7 @@ export async function online(opts: Options) {
   host.send({ t: "startGame" });
   await settle();
 
-  const seat = (name: string) => `s${["Alice", ...opts.seats].indexOf(name) + 1}`;
+  const seat = (name: string) => `s${["Alice", ...opts.seats.map(localName)].indexOf(name) + 1}`;
   const client = (name: string) => clients.get(name)!;
   let clientSeq = 0;
   const act = async (name: string, action: { type: Action["type"]; [field: string]: unknown }) => {
@@ -71,9 +80,18 @@ export async function online(opts: Options) {
     timers.fireDue();
     await settle();
   };
+  const confirm = async (name: string) => {
+    client(name).send({ t: "confirmPassDevice", seat: seat(name) });
+    await settle();
+  };
   const tick = async () => {
     relay.tick(roomCode);
     await settle();
   };
-  return { room, relay, roomCode, clock, timers, host, seat, client, act, view, elapse, wait, tick };
+  return { room, relay, roomCode, clock, timers, host, seat, client, act, confirm, view, elapse, wait, tick };
+}
+
+/** A Seat's name as `Options.seats` gives it, without any "local:" prefix. */
+function localName(name: string): string {
+  return name.startsWith("local:") ? name.slice("local:".length) : name;
 }
