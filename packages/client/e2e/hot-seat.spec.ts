@@ -1,9 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
+import { boardTargets, clickFirst, gameOver, shortGame } from "./play.js";
 
-const gameOver = (page: Page) => page.getByRole("heading", { name: /wins!$/ });
 const step = (page: Page) => page.getByRole("heading", { name: /^Pass the device to / });
 const passButton = (page: Page) => page.getByRole("region", { name: "Respond" }).getByRole("button", { name: "Pass" });
 const hand = (page: Page) => page.getByRole("region", { name: "Your hand" });
+const offered = (page: Page) => {
+  const [first, ...rest] = boardTargets(page);
+  return rest.reduce((any, t) => any.or(t), first!).first();
+};
 
 /**
  * Alice and Bob share one device to game over. Each time the Pass-Device
@@ -11,7 +15,7 @@ const hand = (page: Page) => page.getByRole("region", { name: "Your hand" });
  * Refreshes once at a turn's step and once in an open response window,
  * after the player asked has seen their options. Bob is only asked to
  * respond when he holds a usable card, so a game may end without that
- * window: then it plays another. Policy as in the walking skeleton.
+ * window: then it plays another. Short games, policy as in the walking skeleton.
  */
 test("two players share one device, through refreshes, to game over", async ({ page }) => {
   await page.goto("/");
@@ -22,14 +26,16 @@ test("two players share one device, through refreshes, to game over", async ({ p
     if (game > 0) await page.getByRole("button", { name: "Leave Room" }).click();
     await page.getByLabel("Your name").fill("Alice");
     await page.getByRole("button", { name: "Play on this device" }).click();
+    await shortGame(page);
     await page.getByLabel("Player name").fill("Bob");
     await page.getByRole("button", { name: "Add a player on this device" }).click();
     await expect(page.getByRole("listitem")).toHaveCount(2);
     await page.getByRole("button", { name: "Start game" }).click();
-    await expect(step(page)).toHaveText("Pass the device to Alice");
+    // The first player is rolled for.
+    await expect(step(page)).toHaveText(/^Pass the device to (Alice|Bob)$/);
 
-    for (let n = 0; n < 300 && !(await gameOver(page).isVisible()); n++) {
-      await expect(step(page).or(passButton(page)).or(page.getByRole("dialog").getByRole("button").and(page.locator(":enabled"))).or(enabledMove(page)).or(gameOver(page)).first()).toBeVisible();
+    for (let n = 0; n < 600 && !(await gameOver(page).isVisible()); n++) {
+      await expect(step(page).or(offered(page)).or(gameOver(page)).first()).toBeVisible();
       if (await step(page).isVisible()) {
         await expect(hand(page)).toHaveCount(0);
         const name = (await step(page).innerText()).replace("Pass the device to ", "");
@@ -51,28 +57,10 @@ test("two players share one device, through refreshes, to game over", async ({ p
         await expect(passButton(page)).toBeVisible();
         refreshedInWindow = true;
       }
-      await takeOneAction(page);
+      await clickFirst(page);
     }
     await expect(gameOver(page)).toHaveText(/^(Alice|Bob) wins!$/);
   }
   expect(refreshedAtStep).toBe(true);
   expect(refreshedInWindow).toBe(true);
 });
-
-function enabledMove(page: Page) {
-  const card = hand(page).getByRole("button").and(page.locator(":enabled"));
-  const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
-  return card.or(draw).first();
-}
-
-async function takeOneAction(page: Page): Promise<void> {
-  const decision = page.getByRole("dialog").getByRole("button").and(page.locator(":enabled")).first();
-  const card = hand(page).getByRole("button").and(page.locator(":enabled")).first();
-  const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
-  for (const target of [passButton(page), decision, card, draw]) {
-    if (await target.isVisible()) {
-      await target.click();
-      return;
-    }
-  }
-}

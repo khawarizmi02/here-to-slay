@@ -73,7 +73,7 @@ export function Board({ view: payload, log, playing, responseOptions, deadline, 
         <div className="piles">
           <DeckPile view={view} />
           <DiscardPile view={view} />
-          <DiceTray view={view} events={events} />
+          <DiceTray view={view} />
         </div>
       </section>
 
@@ -202,23 +202,18 @@ function DiscardPile({ view }: { view: PlayerView }) {
   );
 }
 
-/** The last roll, and the rolls a Modifier Window is open on with their totals so far. */
-function DiceTray({ view, events }: { view: PlayerView; events: GameEvent[] }) {
-  const last = [...events].reverse().find((e): e is Extract<GameEvent, { type: "DICE_ROLLED" }> => e.type === "DICE_ROLLED");
-  const window = view.responseWindow?.kind === "modifier" ? view.responseWindow : null;
-  if (!last && !window) return null;
+/**
+ * The rolls a Modifier Window is open on, with their totals so far. Read
+ * from the view alone, so a refresh shows the same: the dice themselves
+ * play in "Now playing" and stay in the game log.
+ */
+function DiceTray({ view }: { view: PlayerView }) {
+  if (view.responseWindow?.kind !== "modifier") return null;
   return (
     <div role="group" aria-label="Dice" className="dice-tray">
-      {last && (
-        <span>
-          {nameIn(view, last.player)} rolled <span className="die">{last.dice[0]}</span>
-          <span className="die">{last.dice[1]}</span>
-          {last.bonus !== 0 && ` ${last.bonus > 0 ? "+" : ""}${last.bonus}`} = {last.total}
-        </span>
-      )}
-      {window?.rolls.map((r) => (
+      {view.responseWindow.rolls.map((r) => (
         <span key={r.roll}>
-          {nameIn(view, r.player)}'s roll: {r.total}
+          {nameIn(view, r.player)}'s roll: <span className="die">{r.total}</span>
         </span>
       ))}
     </div>

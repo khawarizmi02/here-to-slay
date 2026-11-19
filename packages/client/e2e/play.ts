@@ -25,19 +25,55 @@ const screenText = (page: Page) =>
     return copy.textContent;
   });
 
+const enabled = (page: Page) => page.locator(":enabled");
+
+/**
+ * What the board offers, in the order the e2e policy takes it: pass in a
+ * response window, take the first option of a decision, pick the first hero
+ * for an item, attack a monster, play a card, roll for a hero, draw, and
+ * only then end the turn. Attacking first keeps games short.
+ */
+export function boardTargets(page: Page) {
+  return [
+    respond(page).getByRole("button", { name: "Pass" }),
+    page.getByRole("dialog").getByRole("button").and(enabled(page)).first(),
+    page.getByRole("region", { name: /^Equip / }).getByRole("button").first(),
+    page.getByRole("button", { name: /^Attack / }).and(enabled(page)).first(),
+    hand(page).getByRole("button").and(enabled(page)).first(),
+    page.getByRole("button", { name: /^Roll for / }).and(enabled(page)).first(),
+    page.getByRole("button", { name: "Draw a card" }).and(enabled(page)),
+    page.getByRole("button", { name: "End turn" }).and(enabled(page)),
+  ];
+}
+
+/** Something the player can do on their own turn. */
+export const enabledMove = (page: Page) => page.getByRole("button", { name: "End turn" }).and(enabled(page));
+
+/** Clicks the first thing the board offers, if anything. Returns whether it did. */
+export async function clickFirst(page: Page): Promise<boolean> {
+  for (const target of boardTargets(page)) {
+    if (await target.isVisible()) {
+      await target.click();
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Sets the Host's rules for a short game: one slain monster wins. */
+export async function shortGame(page: Page): Promise<void> {
+  await page.getByLabel("Monsters to win").fill("1");
+}
+
 /**
  * Takes the first thing the board offers, if anything, and waits for the
  * Room's answer to change the screen, so nothing is sent twice. A remote
  * Seat holding a usable card in a response window must see a countdown.
  */
 export async function takeOneAction(page: Page, { remote = false } = {}): Promise<boolean> {
-  const pass = respond(page).getByRole("button", { name: "Pass" });
-  const decision = page.getByRole("dialog").getByRole("button").and(page.locator(":enabled")).first();
-  const card = page.getByRole("region", { name: "Your hand" }).getByRole("button").and(page.locator(":enabled")).first();
-  const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
-  for (const target of [pass, decision, card, draw]) {
+  for (const target of boardTargets(page)) {
     if (!(await target.isVisible())) continue;
-    if (remote && target === pass && (await respond(page).getByRole("button", { name: /^Play / }).count()) > 0) {
+    if (remote && (await respond(page).getByRole("button", { name: /^Play / }).count()) > 0) {
       await expect(respond(page).getByRole("timer")).toHaveText(/^\d+s left$/);
     }
     const before = await screenText(page);

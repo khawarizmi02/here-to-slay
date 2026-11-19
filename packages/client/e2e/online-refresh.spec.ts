@@ -41,8 +41,8 @@ test("a Host and a friend come back from refreshes and play on to game over", as
   await skipAnimations(host);
   await expect(friend.getByRole("listitem")).toHaveText([/Alice/, /Bob/]);
   await expect(waitingForHost(friend)).toHaveCount(0);
-  // Long enough that no card ends the game before the refreshes below: a card scores at most 3.
-  await host.getByLabel("Target score").fill("12");
+  // Two monsters to win: long enough that the game outlasts the refreshes below, short enough to finish.
+  await host.getByLabel("Monsters to win").fill("2");
   await host.getByRole("button", { name: "Start game" }).click();
   await play(host, friend, 2);
 

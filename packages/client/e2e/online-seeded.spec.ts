@@ -3,11 +3,11 @@ import { gameOver, hand, hostingNotice, respond, skipAnimations, takeOneAction, 
 
 /** Seeds the Room's random in the Host's tab, which fixes the game's seed and so the whole game. */
 const SEED = "slay-e2e";
-/** Who wins the game `SEED` deals under the policy below, and the final scores. */
-const WINNER = "Alice";
-const FINAL_SCORES = [/^Alice\s+9 points/, /^Bob\s+7 points/, /^Carol\s+7 points/];
+/** Who wins the game `SEED` deals under the policy below, and the monsters each player slew. */
+const WINNER = "Carol";
+const FINAL_SCORES = [/^Alice\s+0 monsters\s+0 heroes/, /^Bob\s+1 monster\s+2 heroes/, /^Carol\s+2 monsters\s+1 hero/];
 const FRIEND_REFRESH_TURN = 3;
-const HOST_REFRESH_TURN = 6;
+const HOST_REFRESH_TURN = 4;
 
 const waitingForResponses = (page: Page) => page.getByRole("status").filter({ hasText: "Waiting for responses…" });
 const turnLine = (page: Page) => page.locator("main.board > p").first();
@@ -24,8 +24,9 @@ async function turnOn(page: Page): Promise<number | null> {
  * The proof that a full online game works (#11): a Host and two friends,
  * each in their own browser context (tabs in one profile share the Room
  * pointer), play the game `SEED` deals through a local relay to game over,
- * with animations skipped. Policy: on your turn, take the first offered
- * action; in a response window, pass; in a decision, take the first option.
+ * with animations skipped and two monsters to win. Policy as `boardTargets`
+ * orders it: always pass in a response window, take a decision's first
+ * option, and on your turn attack, play, roll, draw, then end the turn.
  * Always passing means the order passes arrive in can't change the winner.
  *
  * Along the way, each at the start of a fixed turn, before its first
@@ -54,7 +55,7 @@ test("a Host and two friends play a seeded game to its known winner", async ({ b
   }
   await expect(host!.getByRole("listitem")).toHaveText([/Alice/, /Bob/, /Carol/]);
   for (const page of everyone) await skipAnimations(page);
-  await host!.getByLabel("Target score").fill("8");
+  await host!.getByLabel("Monsters to win").fill("2");
   await host!.getByRole("button", { name: "Start game" }).click();
 
   let friendRefreshed = false;

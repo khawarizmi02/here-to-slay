@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { boardTargets, clickFirst, enabledMove, gameOver, shortGame } from "./play.js";
 
-const gameOver = (page: Page) => page.getByRole("heading", { name: /wins!$/ });
 const passButton = (page: Page) => page.getByRole("region", { name: "Respond" }).getByRole("button", { name: "Pass" });
 /** The Room Code the Room saved its game under, read from IndexedDB rather than from the pointer. */
 const savedRoomCodes = (page: Page) =>
@@ -21,10 +21,26 @@ const roomCode = (page: Page) => page.evaluate(() => (JSON.parse(localStorage.ge
 async function startAgainstABot(page: Page): Promise<void> {
   await page.getByLabel("Your name").fill("Alice");
   await page.getByRole("button", { name: "Play on this device" }).click();
+  await shortGame(page);
   await page.getByRole("button", { name: "Add a bot" }).click();
   await expect(page.getByRole("listitem")).toHaveCount(2);
   await page.getByRole("button", { name: "Start game" }).click();
-  // Alice's turn: nothing can move until she does, so the board holds still for a comparison.
+  await untilAlicesTurn(page);
+}
+
+/**
+ * Waits for Alice's turn, passing and deciding meanwhile: the first player
+ * is rolled for. On her turn nothing can move until she does, so the board
+ * holds still for a comparison.
+ */
+async function untilAlicesTurn(page: Page): Promise<void> {
+  const pass = page.getByRole("region", { name: "Respond" }).getByRole("button", { name: "Pass" });
+  const decision = page.getByRole("dialog").getByRole("button").and(page.locator(":enabled")).first();
+  for (let n = 0; n < 50 && !(await enabledMove(page).isVisible()); n++) {
+    await expect(enabledMove(page).or(pass).or(decision).first()).toBeVisible();
+    if (await enabledMove(page).isVisible()) break;
+    await (await pass.isVisible() ? pass : decision).click();
+  }
   await expect(enabledMove(page)).toBeVisible();
 }
 
@@ -50,7 +66,7 @@ test("a refresh in the lobby lands back in an empty lobby under the same Room Co
   // The rebuilt Room keeps the Room Code: the game it starts is saved under it.
   await page.getByRole("button", { name: "Add a bot" }).click();
   await page.getByRole("button", { name: "Start game" }).click();
-  await expect(enabledMove(page)).toBeVisible();
+  await untilAlicesTurn(page);
   await expect.poll(() => savedRoomCodes(page)).toEqual([code]);
 });
 
@@ -58,7 +74,7 @@ test("a refresh in the lobby lands back in an empty lobby under the same Room Co
  * Refreshes once on Alice's turn and once while a response window waits on
  * her, then plays to game over. Alice is only asked to respond when she
  * holds a usable card, so a game may end without that window: then it plays
- * another. Policy as in the walking skeleton.
+ * another. Short games, policy as in the walking skeleton.
  */
 test("a refresh mid-game restores the same game, even in an open response window", async ({ page }) => {
   await page.goto("/");
@@ -69,14 +85,15 @@ test("a refresh mid-game restores the same game, even in an open response window
     await startAgainstABot(page);
     await refreshAndCompare(page);
 
-    for (let step = 0; step < 200 && !(await gameOver(page).isVisible()); step++) {
-      await expect(passButton(page).or(page.getByRole("dialog").getByRole("button").and(page.locator(":enabled"))).or(enabledMove(page)).or(gameOver(page)).first()).toBeVisible();
+    for (let step = 0; step < 500 && !(await gameOver(page).isVisible()); step++) {
+      const [first, ...rest] = boardTargets(page);
+      await expect(rest.reduce((any, t) => any.or(t), first!).or(gameOver(page)).first()).toBeVisible();
       if (!refreshedInWindow && (await passButton(page).isVisible())) {
         await refreshAndCompare(page);
         await expect(passButton(page)).toBeVisible();
         refreshedInWindow = true;
       }
-      await takeOneAction(page);
+      await clickFirst(page);
     }
     await expect(gameOver(page)).toBeVisible();
   }
@@ -86,21 +103,3 @@ test("a refresh mid-game restores the same game, even in an open response window
   await page.reload();
   await expect(page.getByRole("button", { name: "Play on this device" })).toBeVisible();
 });
-
-function enabledMove(page: Page) {
-  const card = page.getByRole("region", { name: "Your hand" }).getByRole("button").and(page.locator(":enabled"));
-  const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
-  return card.or(draw).first();
-}
-
-async function takeOneAction(page: Page): Promise<void> {
-  const decision = page.getByRole("dialog").getByRole("button").and(page.locator(":enabled")).first();
-  const card = page.getByRole("region", { name: "Your hand" }).getByRole("button").and(page.locator(":enabled")).first();
-  const draw = page.getByRole("button", { name: "Draw a card" }).and(page.locator(":enabled"));
-  for (const target of [passButton(page), decision, card, draw]) {
-    if (await target.isVisible()) {
-      await target.click();
-      return;
-    }
-  }
-}
