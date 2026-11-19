@@ -34,7 +34,7 @@ describe("a Challenge Window", () => {
     expect(r.events).toEqual([{ type: "CHALLENGE_WINDOW_OPENED", player: "p1", card: { id: "hero_bard#0", def: "hero_bard" } }]);
     // Turn order after the player who played it; nobody here holds a Challenge.
     expect(awaiting(e, r.state)).toEqual(["p2", "p3"]);
-    expect(e.getPlayerView(r.state, "p2").responseWindow).toEqual({ kind: "challenge", awaiting: ["p2", "p3"], card: { id: "hero_bard#0", def: "hero_bard" } });
+    expect(e.getPlayerView(r.state, "p2").responseWindow).toEqual({ kind: "challenge", awaiting: ["p2", "p3"], player: "p1", card: { id: "hero_bard#0", def: "hero_bard" } });
     expect(e.getLegalActions(r.state, "p1")).toEqual([]);
     expect(e.getLegalActions(r.state, "p2")).toEqual([{ type: "PASS", player: "p2" }]);
     expect(e.getLegalActions(r.state, "p3")).toEqual([{ type: "PASS", player: "p3" }]);

@@ -1,7 +1,7 @@
-import type { CardDef, HeroClass, PassiveAbility, RollKind } from "@here-to-slay/cards";
+import type { CardDef, Effect, HeroClass, PassiveAbility, RollKind } from "@here-to-slay/cards";
 import type { Action, PlayerViewPayload } from "@here-to-slay/protocol";
 import { DEFAULT_CONFIG } from "./config.js";
-import type { CardDefId, PlayerView } from "./types.js";
+import { ACCEPT, DECLINE, type CardDefId, type PlayerView, type WindowRoll } from "./types.js";
 
 /** Matches the Room's `Bot` by shape, without importing the Room (ADR-0002). */
 export interface EasyBot {
@@ -34,12 +34,17 @@ function bestBy(legal: readonly Action[], score: (a: Action) => number | undefin
 
 /** An attack needs at least this chance to slay (§11.1). */
 const ATTACK_CHANCE = 0.4;
+/** How often it Challenges a player who isn't close to winning (§11.1). */
+const CHALLENGE_CHANCE = 0.2;
 
 /**
  * The easy bot (TECHNICAL_DESIGN.md §11.1). On its own turn it takes the
- * first legal action of its priority list; anything else (responses,
- * Decisions) is a random legal action. It reads only its own view and
- * `legal`. `random` works like Math.random, so the engine never calls it.
+ * first legal action of its priority list. It Challenges a player close to
+ * winning (or at random), plays a Modifier only when it turns a roll its
+ * way, and answers a Decision against the player closest to winning, giving
+ * up its least useful card. Anything else, such as a leader draft, is a
+ * random legal action. It reads only its own view and `legal`. `random`
+ * works like Math.random, so the engine never calls it.
  */
 export function createEasyBot(cardDefs: readonly CardDef[], random: () => number): EasyBot {
   const defs = new Map(cardDefs.map((d) => [d.id, d]));
@@ -162,6 +167,119 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
     () => legal.find((a) => a.type === "END_TURN"),
   ];
 
+  /** One class or one monster away from winning. */
+  const nearWin = (p: PlayerInView): boolean =>
+    partyClasses(p).size >= DEFAULT_CONFIG.classesToWin - 1 || p.slainMonsters.length >= DEFAULT_CONFIG.monstersToWin - 1;
+
+  /** In a Challenge Window: Challenge a player close to winning, or at random 20% of the time; otherwise pass (§11.1). */
+  const challengeResponse = (view: PlayerView, legal: Action[]): Action | undefined => {
+    const window = view.responseWindow;
+    if (window?.kind !== "challenge") return undefined;
+    const challenge = legal.find((a) => a.type === "PLAY_CHALLENGE");
+    const pass = legal.find((a) => a.type === "PASS");
+    if (challenge === undefined) return pass;
+    const player = view.players.find((p) => p.id === window.player);
+    return (player !== undefined && nearWin(player)) || random() < CHALLENGE_CHANCE ? challenge : pass;
+  };
+
+  /** The opponent closer to winning than every other opponent; none while two or more tie for it. */
+  const leadingOpponent = (view: PlayerView, me: PlayerInView): PlayerInView | undefined => {
+    const opponents = view.players.filter((p) => p.id !== me.id);
+    const best = Math.max(...opponents.map(winScore));
+    const leaders = opponents.filter((p) => winScore(p) === best);
+    return leaders.length === 1 ? leaders[0] : undefined;
+  };
+
+  /**
+   * In a Modifier Window: play a Modifier that turns its rolls the way `me`
+   * wants, lifting its own roll to what it needs or dropping the leading
+   * opponent's under it; otherwise pass (§11.1).
+   */
+  const modifierResponse = (view: PlayerView, me: PlayerInView, legal: Action[]): Action | undefined => {
+    const window = view.responseWindow;
+    if (window?.kind !== "modifier") return undefined;
+    const leader = leadingOpponent(view, me)?.id;
+    /** Whether the rolls, at these totals, favour `me`; undefined when it has no stake in them. */
+    const favoursMe = (rolls: WindowRoll[]): boolean | undefined => {
+      /** A roll made (or a Challenge won) favours `me` when it is its own, and not when it is the leader's. */
+      const goes = (roller: string, made: boolean) => (roller === me.id ? made : roller === leader ? !made : undefined);
+      const [first] = rolls;
+      if (first === undefined) return undefined;
+      if (first.rollKind !== "challenge") return goes(first.player, first.total >= first.needs);
+      const challenger = rolls.find((r) => r.rollKind === "challenge" && r.side === "challenger");
+      const defender = rolls.find((r) => r.rollKind === "challenge" && r.side === "defender");
+      if (challenger === undefined || defender === undefined) return undefined;
+      const succeeds = DEFAULT_CONFIG.challengeTieWinner === "challenger" ? challenger.total >= defender.total : challenger.total > defender.total;
+      return goes(challenger.player, succeeds) ?? goes(defender.player, !succeeds);
+    };
+    const pass = legal.find((a) => a.type === "PASS");
+    if (favoursMe(window.rolls) !== false) return pass;
+    const modifier = legal.find(
+      (a) => a.type === "PLAY_MODIFIER" && favoursMe(window.rolls.map((r) => (r.roll === a.roll ? { ...r, total: r.total + a.value } : r))) === true,
+    );
+    return modifier ?? pass;
+  };
+
+  /** Whether `effect` makes `me` give up a card it has: discarding from its hand, or sacrificing a hero. */
+  const costsMe = (effect: Effect, view: PlayerView, me: PlayerInView): boolean => {
+    switch (effect.op) {
+      case "sequence":
+        return effect.steps.some((step) => costsMe(step, view, me));
+      case "discard":
+        return effect.who === "self" && view.hand.length > 0;
+      case "sacrifice":
+        return effect.who === "self" && me.party.length > 0;
+      default:
+        return false;
+    }
+  };
+
+  /** How much `me` would miss a card in its hand: a hero of a new class most, one of a class it has least. */
+  const handValue = (view: PlayerView, me: PlayerInView, card: string): number => {
+    const d = handDef(view, card);
+    if (d?.type !== "hero") return 2;
+    return partyClasses(me).has(d.class) ? 1 : 3;
+  };
+
+  /** How much `me` would miss a hero in its party: one whose class it would lose most, then the likeliest to roll. */
+  const heroValue = (me: PlayerInView, h: HeroInView): number => {
+    const others = { ...me, party: me.party.filter((o) => o.hero.id !== h.hero.id) };
+    return (partyClasses(others).size < partyClasses(me).size ? 2 : 0) + heroChance(me, h);
+  };
+
+  /**
+   * Answers a Decision (§11.1): hurt the player closest to winning, give up
+   * its least useful card, and decline a "you may" that costs it a card.
+   * Undefined when the Decision isn't one of these, such as a leader draft.
+   */
+  const decisionAnswer = (view: PlayerView, me: PlayerInView, legal: Action[]): Action | undefined => {
+    const d = view.pendingDecision;
+    if (d === null || !("options" in d) || d.player !== me.id) return undefined;
+    const answer = (id: string) => legal.find((a) => a.type === "RESOLVE_DECISION" && a.answer.selected[0] === id);
+    if (d.kind === "confirmOptional") return answer(d.effect !== undefined && costsMe(d.effect, view, me) ? DECLINE : ACCEPT);
+    const owner = (hero: string) => view.players.find((p) => p.party.some((h) => h.hero.id === hero));
+    const score = (id: string): number | undefined => {
+      switch (d.kind) {
+        case "choosePlayer": {
+          const p = view.players.find((q) => q.id === id);
+          return p === undefined ? undefined : p.id === me.id ? -1 : winScore(p);
+        }
+        case "chooseHero": {
+          const p = owner(id);
+          const h = p?.party.find((x) => x.hero.id === id);
+          if (p === undefined || h === undefined) return undefined;
+          if (p.id !== me.id) return winScore(p);
+          return d.discard ? -heroValue(me, h) : heroChance(me, h);
+        }
+        case "chooseCardFromHand":
+          return d.discard ? -handValue(view, me, id) : undefined;
+        default:
+          return undefined;
+      }
+    };
+    return bestBy(legal, (a) => (a.type === "RESOLVE_DECISION" ? score(a.answer.selected[0]) : undefined));
+  };
+
   const handDef = (view: PlayerView, card: string): CardDef | undefined => {
     const c = view.hand.find((h) => h.id === card);
     return c === undefined ? undefined : def(c.def);
@@ -171,8 +289,11 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
     chooseAction(payload, legal) {
       const view = payload as unknown as PlayerView;
       const me = view.players.find((p) => p.id === view.me);
-      if (me !== undefined && legal.some((a) => a.type === "END_TURN")) {
-        for (const rule of turnRules(view, me, legal)) {
+      if (me !== undefined) {
+        const rules = legal.some((a) => a.type === "END_TURN")
+          ? turnRules(view, me, legal)
+          : [() => challengeResponse(view, legal), () => modifierResponse(view, me, legal), () => decisionAnswer(view, me, legal)];
+        for (const rule of rules) {
           const action = rule();
           if (action !== undefined) return action;
         }

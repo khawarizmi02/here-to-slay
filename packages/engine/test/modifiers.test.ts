@@ -40,7 +40,7 @@ describe("a Modifier Window", () => {
     expect(e.getPlayerView(r.state, "p2").responseWindow).toEqual({
       kind: "modifier",
       awaiting: ["p1", "p2", "p3"],
-      rolls: [{ roll: "r1", player: "p1", total: 6, modifiers: [] }],
+      rolls: [{ roll: "r1", player: "p1", total: 6, modifiers: [], rollKind: "heroEffect", needs: 7 }],
     });
     for (const p of ["p1", "p2", "p3"]) expect(e.getLegalActions(r.state, p)).toEqual([{ type: "PASS", player: p }]);
     expect(e.applyAction(r.state, { type: "END_TURN", player: "p1" }).ok).toBe(false);
@@ -143,8 +143,8 @@ describe("a Modifier Window in a Challenge", () => {
       kind: "modifier",
       awaiting: ["p3", "p1", "p2"],
       rolls: [
-        { roll: "r1", player: "p3", total: 7, modifiers: [] },
-        { roll: "r2", player: "p1", total: 6, modifiers: [] },
+        { roll: "r1", player: "p3", total: 7, modifiers: [], rollKind: "challenge", side: "challenger" },
+        { roll: "r2", player: "p1", total: 6, modifiers: [], rollKind: "challenge", side: "defender" },
       ],
     });
     expect(e.getLegalActions(r.state, "p2")).toEqual([

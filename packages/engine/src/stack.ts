@@ -187,7 +187,8 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
     if (frame.rollKind === "heroEffect") events.push({ ...rolled, rollKind: "heroEffect", hero: { id: frame.hero, def: state.cards[frame.hero]! } });
     else events.push({ ...rolled, rollKind: "monsterAttack", monster: { id: frame.monster, def: state.cards[frame.monster]! } });
     frame.stage = "settle";
-    pushModifierWindow(state, [{ roll: frame.rollId, player: frame.roller, total }]);
+    const needs = frame.rollKind === "heroEffect" ? heroDef(defs, state, frame.hero)!.rollRequirement : monsterDef(defs, state, frame.monster)!.slayAt;
+    pushModifierWindow(state, [{ roll: frame.rollId, player: frame.roller, total, rollKind: frame.rollKind, needs }]);
     return;
   }
   state.stack.pop();
@@ -253,7 +254,7 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
       }
       if (!("accept" in frame.bindings)) {
         const prompt = `${sourceName(defs, state, frame)}: you may do this`;
-        ask(defs, state, frame, "accept", { player: chooser, kind: "confirmOptional", prompt, options: YOU_MAY, discard: false }, events);
+        ask(defs, state, frame, "accept", { player: chooser, kind: "confirmOptional", prompt, options: YOU_MAY, discard: false, effect: effect.effect }, events);
         return;
       }
       if (frame.bindings.accept === ACCEPT) become(state, frame, effect.effect);
