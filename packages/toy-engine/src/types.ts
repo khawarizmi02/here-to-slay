@@ -120,6 +120,11 @@ export interface PlayerView {
   winner: PlayerId | null;
   /** Everything the viewer may do now (TECHNICAL_DESIGN.md §9); empty for a spectator. */
   legalActions: Action[];
+  /**
+   * The actions the viewer can see but can't take, with reasons (ADR-0004).
+   * The toy board has no disabled controls, so it is always empty.
+   */
+  blockedActions: { type: string; subject?: string; reason: string }[];
 }
 
 export interface CreateGameOptions {

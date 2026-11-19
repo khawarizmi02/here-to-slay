@@ -1,9 +1,9 @@
 import type { RoomMsg } from "@here-to-slay/protocol";
 import { RelayConnection, Room, type RelaySocket } from "@here-to-slay/room";
-import { toyRoomEngine } from "@here-to-slay/toy-engine";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stayAttached, stayJoined } from "../src/root/reconnect.js";
 import { RoomClosedError } from "../src/shell/game.js";
+import { engine } from "./real-game.js";
 
 /** One end of a relay WebSocket, as the tab holds it, driven by hand. */
 class FakeSocket implements RelaySocket {
@@ -120,7 +120,7 @@ function host(attempts: (FakeSocket | Error)[]) {
     sockets.push(next);
     return Promise.resolve(next);
   };
-  const room = new Room({ engine: toyRoomEngine, clock: { now: () => Date.now() }, random: () => 0.5, hostName: "Alice", roomCode: "HJK23" });
+  const room = new Room({ engine, clock: { now: () => Date.now() }, random: () => 0.5, hostName: "Alice", roomCode: "HJK23" });
   const first = attempts.shift() as FakeSocket;
   sockets.push(first);
   room.attachRelay(first);

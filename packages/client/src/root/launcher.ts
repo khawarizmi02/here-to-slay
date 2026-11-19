@@ -10,14 +10,15 @@ import {
   type RelaySocket,
   type RoomEngine,
 } from "@here-to-slay/room";
-import { toyRoomEngine, type GameState } from "@here-to-slay/toy-engine";
+import { createRoomEngine, type GameState } from "@here-to-slay/engine";
+import { CARD_DEFS } from "../board/cards.js";
 import { RoomClosedError, type LaunchedRoom, type LaunchedSeat, type Launcher } from "../shell/game.js";
 import { stayAttached, stayJoined } from "./reconnect.js";
 import { heldSubscribers } from "./subscribers.js";
 import { browserDialer, createRelayRoom, hostSocket, rejoiningDialer, type RelayRoom } from "./relay.js";
 
-/** The toy engine stands in for the rules engine until the board moves to it. */
-const engine: RoomEngine<GameState> = toyRoomEngine;
+/** The rules engine, with the card set the board shows. */
+const engine: RoomEngine<GameState> = createRoomEngine(CARD_DEFS);
 
 /**
  * The composition root: the only code that touches the Room. It builds Rooms

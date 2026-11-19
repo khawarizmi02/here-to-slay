@@ -3,7 +3,7 @@ import { cloneState } from "./clone.js";
 import { actionCost } from "./passives.js";
 import { playChallenge } from "./challenges.js";
 import { playModifier, withRoll } from "./modifiers.js";
-import { pass, responseActions } from "./windows.js";
+import { openWindow, pass, responseActions } from "./windows.js";
 import { playableHeroes, rollableHeroes, rollHeroEffect } from "./heroes.js";
 import { playableItems, playableMagic, playCard } from "./plays.js";
 import { attackableMonsters, attackMonster } from "./monsters.js";
@@ -40,7 +40,7 @@ export function getLegalActions(defs: CardIndex, state: GameState, player: Playe
   }
   const responses = responseActions(defs, state, player);
   if (responses !== undefined) return responses;
-  if (state.phase.kind !== "action" || state.activePlayer !== player) return [];
+  if (!turnActionsOpen(state, player)) return [];
   const actions: TurnAction[] = [];
   const affordable = (type: CostedAction) => actionCost(defs, state, player, type) <= state.actionPoints;
   if (affordable("DRAW_CARD") && canDraw(state)) actions.push({ type: "DRAW_CARD", player });
@@ -52,6 +52,14 @@ export function getLegalActions(defs: CardIndex, state: GameState, player: Playe
   if (affordable("DISCARD_AND_REDRAW")) actions.push({ type: "DISCARD_AND_REDRAW", player });
   actions.push({ type: "END_TURN", player });
   return actions;
+}
+
+/**
+ * Whether `player` may take turn actions now: they are the active player in
+ * the action phase, with no Decision pending and no Response Window open.
+ */
+export function turnActionsOpen(state: GameState, player: PlayerId): boolean {
+  return state.pendingDecision === null && openWindow(state) === undefined && state.phase.kind === "action" && state.activePlayer === player;
 }
 
 /** Whether `player`'s pending Decision gives up one of their own cards (§6.4). */

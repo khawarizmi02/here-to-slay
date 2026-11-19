@@ -144,6 +144,22 @@ export function describeRoomEngineContract<State>(name: string, opts: RoomEngine
       });
     });
 
+    it.each(games)("puts blockedActions in every PlayerView, none of them legal (seed $seed, $count players)", ({ seed, count }) => {
+      play(seed, count, (state, players) => {
+        for (const player of players) {
+          const view = engine.getPlayerView(state, player);
+          const blocked = view.blockedActions as { type: string; subject?: string; reason: string }[];
+          expect(Array.isArray(blocked)).toBe(true);
+          const legal = new Set((view.legalActions as Action[]).map((a) => `${a.type} ${subjectOf(a) ?? ""}`));
+          for (const b of blocked) {
+            expect(b.reason, `${b.type} has no reason`).not.toBe("");
+            expect(legal.has(`${b.type} ${b.subject ?? ""}`), `${b.type} ${b.subject ?? ""} is both legal and blocked`).toBe(false);
+          }
+        }
+        expect(engine.getPlayerView(state, SPECTATOR).blockedActions).toEqual([]);
+      });
+    });
+
     it.each(games)("shows no hidden card in filtered events or views (seed $seed, $count players)", ({ seed, count }) => {
       const game = newGame(seed, count);
       const { players } = game;
@@ -242,4 +258,12 @@ function seededRandom(seed: string): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** The card, monster or hero an action is about, as a blocked action's `subject` (ADR-0004). */
+function subjectOf(action: Action): string | undefined {
+  if ("card" in action) return action.card;
+  if ("monster" in action) return action.monster;
+  if ("hero" in action) return action.hero;
+  return undefined;
 }

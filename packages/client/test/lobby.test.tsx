@@ -46,28 +46,33 @@ describe("the lobby", () => {
     expect(screen.queryByText(/ABCDE/)).toBeNull();
   });
 
-  it("lets the Host set the target score and hand size, starting from the toy's defaults", async () => {
+  it("lets the Host set the rules, starting from the engine's defaults", async () => {
     const { connection, user } = await renderInLobby();
-    const target = screen.getByLabelText("Target score");
+    const monsters = screen.getByLabelText("Monsters to win");
     const handSize = screen.getByLabelText("Hand size");
-    expect(target).toHaveValue(5);
-    expect(handSize).toHaveValue(3);
+    expect(monsters).toHaveValue(3);
+    expect(screen.getByLabelText("Classes to win")).toHaveValue(6);
+    expect(handSize).toHaveValue(5);
+    expect(screen.getByLabelText("Action points")).toHaveValue(3);
 
-    await user.clear(target);
-    await user.type(target, "8");
+    await user.clear(monsters);
+    await user.type(monsters, "1");
     await user.clear(handSize);
     await user.type(handSize, "4");
     expect(connection.takeSent()).toEqual([
-      { t: "setConfig", config: { targetScore: 8 } },
-      { t: "setConfig", config: { handSize: 4 } },
+      { t: "setConfig", config: { monstersToWin: 1 } },
+      { t: "setConfig", config: { startingHandSize: 4 } },
     ]);
   });
 
-  it("sends no rule the toy engine would refuse", async () => {
+  it("sends no rule the engine would refuse", async () => {
     const { connection, user } = await renderInLobby();
-    const target = screen.getByLabelText("Target score");
-    await user.clear(target);
-    await user.type(target, "0");
+    const monsters = screen.getByLabelText("Monsters to win");
+    await user.clear(monsters);
+    await user.type(monsters, "0");
+    const classes = screen.getByLabelText("Classes to win");
+    await user.clear(classes);
+    await user.type(classes, "7");
     expect(connection.takeSent()).toEqual([]);
   });
 
@@ -79,7 +84,7 @@ describe("the lobby", () => {
     connection.receive({ t: "lobby", roomCode: "ABCDE", seats: [ALICE, BOT], you: ["s2"] });
     await connected();
     expect(screen.getByText("Lobby")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Target score")).toBeNull();
+    expect(screen.queryByLabelText("Monsters to win")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start game" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add a bot" })).toBeNull();
   });

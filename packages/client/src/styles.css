@@ -92,3 +92,179 @@ button {
   max-width: 640px;
   font-style: italic;
 }
+
+/* The game board (§12.1): opponents on top, the centre, then the player's own area. */
+main.board {
+  max-width: 960px;
+}
+
+.turn-line {
+  margin: 0;
+  font-weight: bold;
+}
+
+.opponents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.opponent {
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 6px;
+}
+
+.opponent.active {
+  border: 2px solid #d4a017;
+}
+
+.opponent h3,
+.opponent p {
+  margin: 0 0 4px;
+}
+
+.centre {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.monsters,
+.party,
+.hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.piles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pile.deck {
+  display: flex;
+  flex-direction: column;
+}
+
+.dice-tray {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.die {
+  display: inline-block;
+  min-width: 1.4em;
+  margin: 0 2px;
+  text-align: center;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+}
+
+.window {
+  margin: 0;
+  font-weight: bold;
+}
+
+.player-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ap {
+  align-self: center;
+  letter-spacing: 2px;
+}
+
+/* A card, drawn with HTML and CSS until art exists (§12.4). It grows on hover or focus to be read. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 132px;
+  padding: 6px;
+  font-size: 0.8rem;
+  border: 2px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 8px;
+  background: Canvas;
+  transition: transform 0.1s;
+}
+
+.card:hover,
+.card:focus-within {
+  transform: scale(1.15);
+  z-index: 1;
+}
+
+.card-name {
+  font-size: 0.9rem;
+}
+
+.card-subtitle {
+  font-style: italic;
+}
+
+.card-text {
+  opacity: 0.85;
+}
+
+.card-leader {
+  border-color: #d4a017;
+}
+
+.card-monster {
+  border-color: #a33;
+}
+
+.card-hero.rolled {
+  opacity: 0.7;
+}
+
+.equipped {
+  font-weight: bold;
+}
+
+.control {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Why a control is disabled, shown as well as in its tooltip, so touch screens see it too. */
+.reason {
+  font-size: 0.75rem;
+  font-style: italic;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+.targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.targets p {
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .card {
+    width: 110px;
+  }
+}

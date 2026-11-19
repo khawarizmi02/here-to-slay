@@ -1,4 +1,4 @@
-import { createRng, nextFloat } from "@here-to-slay/toy-engine";
+import { createRng, nextFloat } from "@here-to-slay/engine";
 
 /**
  * The Room's `random`. A test build that is `seedable` seeds it from the

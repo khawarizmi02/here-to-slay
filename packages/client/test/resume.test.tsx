@@ -1,8 +1,8 @@
-import * as toy from "@here-to-slay/toy-engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { RoomClosedError } from "../src/shell/game.js";
 import { FakeConnection } from "./fake-connection.js";
+import { ALICE_HERO, BOT_HERO, CHALLENGE, MODIFIER, newGame as game, viewOf } from "./real-game.js";
 import { ALICE, BOT, connected, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
@@ -12,15 +12,8 @@ const players = [
   { id: "s2", name: "Bot 1", isBot: true },
 ];
 
-/** Hands of two: Alice holds point_1 and challenge, the bot point_2 and modifier. */
-function newGame(targetScore = 5) {
-  return toy.createGame({
-    players,
-    seed: "client",
-    config: { handSize: 2, targetScore },
-    deckOrder: ["point_1", "challenge", "point_2", "modifier", "point_3"],
-  });
-}
+/** Alice holds a hero and a Challenge, the bot a hero and a Modifier. */
+const newGame = () => game({ players, hands: { s1: [ALICE_HERO, CHALLENGE], s2: [BOT_HERO, MODIFIER] } });
 
 describe("the Room pointer", () => {
   it("points at the Room once a game on this device starts", async () => {
@@ -42,12 +35,10 @@ describe("loading with a pointer", () => {
     expect(resumed).toEqual([pointer]);
 
     await screen.findByText("Connecting…");
-    connection.receive({ t: "update", version: 4, events: [], view: toy.getPlayerView(newGame(), "s1") as unknown as Record<string, unknown> });
+    connection.receive({ t: "update", version: 4, events: [], view: viewOf(newGame(), "s1") });
     await connected();
-    within(screen.getByRole("region", { name: "Your hand" })).getByRole("button", { name: "1 Point" }).click();
-    expect(connection.takeSent()).toEqual([
-      { t: "action", seat: "s1", action: { type: "PLAY_HERO", player: "s1", card: "point_1#0" }, clientSeq: 0 },
-    ]);
+    within(screen.getByRole("region", { name: "Your hand" })).getByRole("button", { name: "Placeholder Bard 1" }).click();
+    expect(connection.takeSent()).toEqual([{ t: "action", seat: "s1", action: { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }, clientSeq: 0 }]);
   });
 
   it("lands on the first screen, with the pointer cleared, when the Room has closed", async () => {
@@ -85,17 +76,15 @@ describe("Leave Room", () => {
 
 describe("game over", () => {
   it("clears the pointer, so the next load starts fresh", async () => {
-    let state = newGame(1);
+    const state = newGame();
     const { connection, pointers } = await renderInLobby([ALICE, BOT]);
-    connection.receive({ t: "update", version: 1, events: [], view: toy.getPlayerView(state, "s1") as unknown as Record<string, unknown> });
+    connection.receive({ t: "update", version: 1, events: [], view: viewOf(state, "s1") });
     expect(pointers.load()).not.toBeNull();
 
-    for (const action of [{ type: "PLAY_HERO", player: "s1", card: "point_1#0" }, { type: "PASS", player: "s2" }] as const) {
-      const result = toy.applyAction(state, action);
-      if (!result.ok) throw new Error(result.error);
-      state = result.state;
-    }
-    connection.receive({ t: "update", version: 3, events: [], view: toy.getPlayerView(state, "s1") as unknown as Record<string, unknown> });
+    state.winner = "s1";
+    state.winReason = "monsters";
+    state.phase = { kind: "gameOver" };
+    connection.receive({ t: "update", version: 3, events: [], view: viewOf(state, "s1") });
     expect(screen.getByRole("heading", { name: "Alice wins!" })).toBeInTheDocument();
     expect(pointers.load()).toBeNull();
   });

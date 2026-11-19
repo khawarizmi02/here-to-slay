@@ -1,6 +1,7 @@
 import { clone } from "./clone.js";
 import { awaitingResponses, openWindow } from "./windows.js";
 import { getLegalActions } from "./rules.js";
+import { getBlockedActions } from "./blocked.js";
 import type { CardIndex, CardInstanceId, CardView, GameEvent, GameState, PlayerId, PlayerView } from "./types.js";
 
 /** The whole Decision for the player who must answer; everyone else learns only who that is. */
@@ -54,6 +55,7 @@ export function getPlayerView(defs: CardIndex, state: GameState, viewer: PlayerI
     winner: state.winner,
     winReason: state.winReason,
     legalActions: me ? getLegalActions(defs, state, me.id) : [],
+    blockedActions: me ? getBlockedActions(defs, state, me.id) : [],
   };
 }
 
