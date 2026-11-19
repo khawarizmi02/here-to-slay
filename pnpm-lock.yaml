@@ -35,15 +35,18 @@ importers:
 
   packages/client:
     dependencies:
+      '@here-to-slay/cards':
+        specifier: workspace:*
+        version: link:../cards
+      '@here-to-slay/engine':
+        specifier: workspace:*
+        version: link:../engine
       '@here-to-slay/protocol':
         specifier: workspace:*
         version: link:../protocol
       '@here-to-slay/room':
         specifier: workspace:*
         version: link:../room
-      '@here-to-slay/toy-engine':
-        specifier: workspace:*
-        version: link:../toy-engine
       framer-motion:
         specifier: ^14.14.0
         version: 14.14.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)

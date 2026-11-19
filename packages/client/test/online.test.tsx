@@ -1,8 +1,8 @@
 import "@testing-library/jest-dom/vitest";
-import * as toy from "@here-to-slay/toy-engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FakeConnection } from "./fake-connection.js";
+import { ALICE_HERO, BOB_HERO, CHALLENGE, newGame, play, viewOf } from "./real-game.js";
 import { ALICE, connected, fakeRoom, renderClient } from "./render.js";
 
 const BOB = { id: "s2", name: "Bob", kind: "remote", connected: true } as const;
@@ -80,20 +80,16 @@ describe("joining with a Room Code", () => {
   });
 });
 
-/** Alice has played 1 Point, and Bob, holding a Challenge, is asked to respond. */
+/** Alice has played her hero, and Bob, holding a Challenge, is asked to respond. */
 function bobAskedToRespond(): Record<string, unknown> {
-  const game = toy.createGame({
+  const state = newGame({
     players: [
       { id: "s1", name: "Alice", isBot: false },
       { id: "s2", name: "Bob", isBot: false },
     ],
-    seed: "online",
-    config: { handSize: 2 },
-    deckOrder: ["point_1", "point_2", "challenge", "point_3", "point_1"],
+    hands: { s1: [ALICE_HERO], s2: [BOB_HERO, CHALLENGE] },
   });
-  const played = toy.applyAction(game, { type: "PLAY_HERO", player: "s1", card: "point_1#0" });
-  if (!played.ok) throw new Error(played.error);
-  return toy.getPlayerView(played.state, "s2") as unknown as Record<string, unknown>;
+  return viewOf(play(state, { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }), "s2");
 }
 
 describe("a friend in a response window", () => {
@@ -102,7 +98,7 @@ describe("a friend in a response window", () => {
     connection.receive({ t: "lobby", roomCode: "HJK23", seats: [ALICE, BOB], you: ["s2"] });
     connection.receive({ t: "update", version: 2, events: [], view: bobAskedToRespond() });
     const bar = screen.getByRole("region", { name: "Respond" });
-    expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Play Challenge"]);
+    expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Play Placeholder Challenge"]);
 
     connection.takeSent();
     await user.click(within(bar).getByRole("button", { name: "Pass" }));

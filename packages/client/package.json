@@ -9,9 +9,10 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@here-to-slay/cards": "workspace:*",
+    "@here-to-slay/engine": "workspace:*",
     "@here-to-slay/protocol": "workspace:*",
     "@here-to-slay/room": "workspace:*",
-    "@here-to-slay/toy-engine": "workspace:*",
     "framer-motion": "^14.14.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

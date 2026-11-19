@@ -1,8 +1,9 @@
 import type { LobbySeat } from "@here-to-slay/protocol";
-import * as toy from "@here-to-slay/toy-engine";
+import type { GameState } from "@here-to-slay/engine";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FakeConnection } from "./fake-connection.js";
+import { ALICE_HERO, BOB_HERO, BOT_HERO, CHALLENGE, MAGIC, MODIFIER, newGame as game, play, step, viewOf } from "./real-game.js";
 import { ALICE, connected, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
@@ -19,27 +20,17 @@ describe("the lobby", () => {
   });
 });
 
-/** Alice holds point_1 and wish, Bob point_2 and challenge, the bot point_3 and modifier. */
-function newGame() {
-  return toy.createGame({
+/** Alice holds a hero and a Magic card, Bob a hero and a Challenge, the bot a hero and a Modifier. */
+function newGame(config = {}) {
+  return game({
     players: [
       { id: "s1", name: "Alice", isBot: false },
       { id: "s2", name: "Bob", isBot: false },
       { id: "s3", name: "Bot 1", isBot: true },
     ],
-    seed: "hot-seat",
-    config: { handSize: 2, targetScore: 9 },
-    deckOrder: ["point_1", "wish", "point_2", "challenge", "point_3", "modifier", "point_1", "point_2", "point_3", "point_1", "point_2"],
+    hands: { s1: [ALICE_HERO, MAGIC], s2: [BOB_HERO, CHALLENGE], s3: [BOT_HERO, MODIFIER] },
+    config,
   });
-}
-
-function play(state: toy.GameState, ...actions: toy.Action[]): toy.GameState {
-  for (const action of actions) {
-    const result = toy.applyAction(state, action);
-    if (!result.ok) throw new Error(result.error);
-    state = result.state;
-  }
-  return state;
 }
 
 /** Alice and Bob on this device, with a bot, in a game that has just started. */
@@ -55,9 +46,9 @@ async function aliceAndBob() {
   const alice = client.connection;
   let version = 1;
   /** Sends both Seats their view of `state`, as the Room does after every change. */
-  const show = (state: toy.GameState) => {
+  const show = (state: GameState) => {
     for (const [connection, seat] of [[alice, "s1"], [bob, "s2"]] as const) {
-      connection.receive({ t: "update", version, events: [], view: toy.getPlayerView(state, seat) as unknown as Record<string, unknown> });
+      connection.receive({ t: "update", version, events: [], view: viewOf(state, seat) });
     }
     version++;
   };
@@ -75,7 +66,7 @@ describe("the Pass-Device Step for turns", () => {
     handHidden();
 
     await user.click(screen.getByRole("button", { name: "I'm Alice" }));
-    expect(hand().getByRole("button", { name: "1 Point" })).toBeEnabled();
+    expect(hand().getByRole("button", { name: "Placeholder Bard 1" })).toBeEnabled();
   });
 
   it("passes to the next local player on their turn, and acts from their Seat", async () => {
@@ -83,16 +74,16 @@ describe("the Pass-Device Step for turns", () => {
     show(newGame());
     await user.click(screen.getByRole("button", { name: "I'm Alice" }));
 
-    // Alice draws: her turn ends, and Bob's begins.
-    const drawn = play(newGame(), { type: "DRAW_CARD", player: "s1" });
+    // Alice ends her turn, and Bob's begins.
+    const drawn = play(newGame(), { type: "END_TURN", player: "s1" });
     expect(drawn.activePlayer).toBe("s2");
     show(drawn);
     expect(screen.getByRole("heading", { name: "Pass the device to Bob" })).toBeInTheDocument();
     handHidden();
 
     await user.click(screen.getByRole("button", { name: "I'm Bob" }));
-    hand().getByRole("button", { name: "2 Points" }).click();
-    expect(bob.takeSent()).toEqual([{ t: "action", seat: "s2", action: { type: "PLAY_HERO", player: "s2", card: "point_2#0" }, clientSeq: 0 }]);
+    hand().getByRole("button", { name: "Placeholder Fighter 1" }).click();
+    expect(bob.takeSent()).toEqual([{ t: "action", seat: "s2", action: { type: "PLAY_HERO", player: "s2", card: BOB_HERO }, clientSeq: 0 }]);
     expect(alice.takeSent()).toEqual([]);
   });
 
@@ -101,43 +92,45 @@ describe("the Pass-Device Step for turns", () => {
     show(newGame());
     await user.click(screen.getByRole("button", { name: "I'm Alice" }));
 
-    // Alice's wish opens a response window; once everyone passes, she decides.
-    const wished = play(newGame(), { type: "PLAY_HERO", player: "s1", card: "wish#0" });
-    show(wished);
+    // Alice's hero opens a response window; once everyone passes, she decides whether to roll for free.
+    const played = play(newGame({ freeRollOnHeroPlay: true }), { type: "PLAY_HERO", player: "s1", card: ALICE_HERO });
+    show(played);
     expect(screen.queryByRole("heading", { name: /pass the device/i })).toBeNull();
-    show(play(wished, { type: "PASS", player: "s2" }, { type: "PASS", player: "s3" }));
+    const deciding = play(played, { type: "PASS", player: "s2" }, { type: "PASS", player: "s3" });
+    expect(deciding.pendingDecision?.player).toBe("s1");
+    show(deciding);
     expect(screen.getByRole("heading", { name: "Pass the device to Alice" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "I'm Alice" }));
-    expect(screen.getByRole("dialog", { name: "Make a wish" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: deciding.pendingDecision!.prompt })).toBeInTheDocument();
   });
 
   it("stays on screen while the game waits on a Seat that isn't on this device", async () => {
     const { show, user } = await aliceAndBob();
     show(newGame());
     await user.click(screen.getByRole("button", { name: "I'm Alice" }));
-    const bobsTurn = play(newGame(), { type: "DRAW_CARD", player: "s1" });
+    const bobsTurn = play(newGame(), { type: "END_TURN", player: "s1" });
     show(bobsTurn);
     await user.click(screen.getByRole("button", { name: "I'm Bob" }));
 
-    const botsTurn = play(bobsTurn, { type: "DRAW_CARD", player: "s2" });
+    const botsTurn = play(bobsTurn, { type: "END_TURN", player: "s2" });
     expect(botsTurn.activePlayer).toBe("s3");
     show(botsTurn);
-    expect(hand().getByRole("button", { name: "Challenge" })).toBeDisabled();
+    expect(hand().getByRole("button", { name: "Placeholder Challenge" })).toBeDisabled();
 
-    show(play(botsTurn, { type: "DRAW_CARD", player: "s3" }));
+    show(play(botsTurn, { type: "END_TURN", player: "s3" }));
     expect(screen.getByRole("heading", { name: "Pass the device to Alice" })).toBeInTheDocument();
   });
 });
 
 describe("the Pass-Device Step for response windows", () => {
-  /** Alice has played her 1 Point, and Bob, holding a Challenge, is asked to respond. */
+  /** Alice has played her hero, and Bob, holding a Challenge, is asked to respond. */
   async function bobAsked() {
     const client = await aliceAndBob();
     client.show(newGame());
     await client.user.click(screen.getByRole("button", { name: "I'm Alice" }));
-    const played = play(newGame(), { type: "PLAY_HERO", player: "s1", card: "point_1#0" });
+    const played = play(newGame(), { type: "PLAY_HERO", player: "s1", card: ALICE_HERO });
     client.show(played);
     client.bob.receive({ t: "passDevice", seat: "s2", name: "Bob" });
     return { ...client, played };
@@ -163,10 +156,10 @@ describe("the Pass-Device Step for response windows", () => {
       seat: "s2",
       actions: [
         { type: "PASS", player: "s2" },
-        { type: "PLAY_CHALLENGE", player: "s2", card: "challenge#0" },
+        { type: "PLAY_CHALLENGE", player: "s2", card: CHALLENGE },
       ],
     });
-    expect(hand().getByRole("button", { name: "Challenge" })).toBeInTheDocument();
+    expect(hand().getByRole("button", { name: "Placeholder Challenge" })).toBeInTheDocument();
     screen.getByRole("button", { name: "Pass" }).click();
     expect(bob.takeSent()).toEqual([{ t: "action", seat: "s2", action: { type: "PASS", player: "s2" }, clientSeq: 0 }]);
   });
@@ -196,7 +189,7 @@ describe("a refresh mid-game", () => {
   const pointer = { mode: "offline", role: "host", roomCode: "ABCDE", name: "Alice" } as const;
 
   /** Reloads into a Room with Alice and Bob on this device, as the composition root restores it. */
-  async function resumed(state: toy.GameState) {
+  async function resumed(state: GameState) {
     const alice = new FakeConnection();
     const bob = new FakeConnection();
     const client = renderClient({
@@ -210,22 +203,22 @@ describe("a refresh mid-game", () => {
         ),
     });
     await screen.findByText("Connecting…");
-    alice.receive({ t: "update", version: 7, events: [], view: toy.getPlayerView(state, "s1") as unknown as Record<string, unknown> });
-    bob.receive({ t: "update", version: 7, events: [], view: toy.getPlayerView(state, "s2") as unknown as Record<string, unknown> });
+    alice.receive({ t: "update", version: 7, events: [], view: viewOf(state, "s1") });
+    bob.receive({ t: "update", version: 7, events: [], view: viewOf(state, "s2") });
     await connected();
     return { ...client, alice, bob };
   }
 
   it("restores every local Seat, and hides the hands until whoever's turn it is has the device", async () => {
-    const { bob, user } = await resumed(play(newGame(), { type: "DRAW_CARD", player: "s1" }));
+    const { bob, user } = await resumed(play(newGame(), { type: "END_TURN", player: "s1" }));
     expect(screen.getByRole("heading", { name: "Pass the device to Bob" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "I'm Bob" }));
-    hand().getByRole("button", { name: "2 Points" }).click();
-    expect(bob.takeSent()).toEqual([{ t: "action", seat: "s2", action: { type: "PLAY_HERO", player: "s2", card: "point_2#0" }, clientSeq: 0 }]);
+    hand().getByRole("button", { name: "Placeholder Fighter 1" }).click();
+    expect(bob.takeSent()).toEqual([{ t: "action", seat: "s2", action: { type: "PLAY_HERO", player: "s2", card: BOB_HERO }, clientSeq: 0 }]);
   });
 
   it("picks an open response window back up with the Room's ask", async () => {
-    const { bob, user } = await resumed(play(newGame(), { type: "PLAY_HERO", player: "s1", card: "point_1#0" }));
+    const { bob, user } = await resumed(play(newGame(), { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }));
     bob.receive({ t: "passDevice", seat: "s2", name: "Bob" });
     expect(screen.getByRole("heading", { name: "Pass the device to Bob" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "I'm Bob" }));
@@ -239,21 +232,13 @@ describe("animation with several Seats", () => {
     show(newGame());
     await user.click(screen.getByRole("button", { name: "I'm Alice" }));
 
-    const result = toy.applyAction(newGame(), { type: "PLAY_HERO", player: "s1", card: "point_1#0" });
-    if (!result.ok) throw new Error(result.error);
-    for (const [connection, seat] of [[alice, "s1"], [bob, "s2"]] as const) {
-      connection.receive({
-        t: "update",
-        version: 2,
-        events: toy.getPlayerEvents(result.events, seat),
-        view: toy.getPlayerView(result.state, seat) as unknown as Record<string, unknown>,
-      });
-    }
-    expect(screen.getByRole("region", { name: "Now playing" })).toHaveTextContent("You played 1 Point");
+    const playHero = { type: "PLAY_HERO", player: "s1", card: ALICE_HERO } as const;
+    for (const [connection, seat] of [[alice, "s1"], [bob, "s2"]] as const) connection.receive(step(newGame(), playHero, seat, 2).msg);
+    expect(screen.getByRole("region", { name: "Now playing" })).toHaveTextContent("You played Placeholder Bard 1");
 
     bob.receive({ t: "passDevice", seat: "s2", name: "Bob" });
     await user.click(screen.getByRole("button", { name: "I'm Bob" }));
     expect(screen.queryByRole("region", { name: "Now playing" })).toBeNull();
-    expect(within(screen.getByRole("list", { name: "Game log" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Alice played 1 Point"]);
+    expect(within(screen.getByRole("list", { name: "Game log" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Alice played Placeholder Bard 1"]);
   });
 });

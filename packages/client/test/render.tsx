@@ -5,7 +5,7 @@ import { expect } from "vitest";
 import { App } from "../src/shell/App.js";
 import type { LaunchedRoom, LaunchedSeat, Launcher } from "../src/shell/game.js";
 import { memoryPointerStore, type RoomPointer } from "../src/shell/pointer.js";
-import { toyGame } from "../src/toy/ToyGame.js";
+import { realGame } from "../src/board/layer.js";
 import { FakeConnection } from "./fake-connection.js";
 
 /** A Room on this device as the composition root would hand it over, with `addSeat` standing in for a lobby naming a new local Seat. */
@@ -28,7 +28,7 @@ export function fakeRoom(seats: LaunchedSeat[], roomCode = "ABCDE"): LaunchedRoo
   };
 }
 
-/** The whole client, shell and toy layer, with fake connections where the composition root's Room would be. */
+/** The whole client, shell and board layer, with fake connections where the composition root's Room would be. */
 export function renderClient({
   pointer = null,
   resume,
@@ -65,7 +65,7 @@ export function renderClient({
   };
   const pointers = memoryPointerStore(pointer);
   const user = userEvent.setup();
-  render(<App launcher={launcher} pointers={pointers} game={toyGame} />);
+  render(<App launcher={launcher} pointers={pointers} game={realGame} />);
   return {
     connection,
     launched,
