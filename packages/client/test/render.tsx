@@ -8,6 +8,8 @@ import { memoryPointerStore, type RoomPointer } from "../src/shell/pointer.js";
 import { deviceSettings } from "../src/shell/settings.js";
 import type { Sound, SoundPlayer } from "../src/shell/sound.js";
 import { realGame } from "../src/board/layer.js";
+import { watchReplay } from "../src/root/launcher.js";
+import type { ReplayFile } from "../src/shell/game.js";
 import { FakeConnection } from "./fake-connection.js";
 
 /** A Room on this device as the composition root would hand it over, with `addSeat` standing in for a lobby naming a new local Seat. */
@@ -16,6 +18,7 @@ export function fakeRoom(seats: LaunchedSeat[], roomCode = "ABCDE"): LaunchedRoo
   return {
     roomCode,
     seats,
+    replayFile: () => ({ filename: `here-to-slay-${roomCode}.json`, mimeType: "application/json", contents: "the replay" }),
     onSeatAdded(cb) {
       listeners.add(cb);
       return () => {
@@ -72,11 +75,14 @@ export function renderClient({
       resumed.push(p);
       return resume ? resume(p) : Promise.resolve(fakeRoom([{ connection, name: p.name, host: true }], p.roomCode));
     },
+    // The composition root's own, on the board's card set: a replay never reaches a Room.
+    openReplay: watchReplay,
   };
+  const saved: ReplayFile[] = [];
   const pointers = memoryPointerStore(pointer);
   const user = userEvent.setup();
   const sounds = new FakeSoundPlayer();
-  render(<App launcher={launcher} pointers={pointers} game={realGame} settings={deviceSettings(storage)} sounds={sounds} />);
+  render(<App launcher={launcher} pointers={pointers} game={realGame} settings={deviceSettings(storage)} sounds={sounds} saveFile={(file) => saved.push(file)} />);
   return {
     connection,
     launched,
@@ -86,6 +92,8 @@ export function renderClient({
     pointers,
     user,
     sounds,
+    /** The files the device was asked to save. */
+    saved,
     /** Connects another local Seat, as the composition root does when a lobby names one. */
     addSeat(seat: LaunchedSeat) {
       room.addSeat(seat);

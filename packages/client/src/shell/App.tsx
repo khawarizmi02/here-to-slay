@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { connectDevice, type Device } from "./device.js";
-import { RoomClosedError, type GameLayer, type LaunchedRoom, type Launcher } from "./game.js";
+import type { Replay } from "@here-to-slay/room";
+import { RoomClosedError, type GameLayer, type LaunchedRoom, type Launcher, type ReplayFile } from "./game.js";
 import { Home } from "./Home.js";
 import type { PointerStore, RoomPointer } from "./pointer.js";
+import { ReplayViewer } from "./ReplayViewer.js";
 import { SeatScreen } from "./SeatScreen.js";
 import type { DeviceSettings } from "./settings.js";
 import type { SoundPlayer } from "./sound.js";
@@ -11,7 +13,8 @@ type Screen =
   | { kind: "home"; message?: string }
   | { kind: "resuming"; pointer: RoomPointer }
   | { kind: "connecting" }
-  | { kind: "device"; device: Device };
+  | { kind: "device"; device: Device }
+  | { kind: "replay"; replay: Replay };
 
 const ROOM_CLOSED = "That Room has closed.";
 
@@ -27,12 +30,15 @@ export function App({
   game,
   settings,
   sounds,
+  saveFile,
 }: {
   launcher: Launcher;
   pointers: PointerStore;
   game: GameLayer;
   settings: DeviceSettings;
   sounds: SoundPlayer;
+  /** Has the player's device save a file, such as the replay the Host downloads at game over. */
+  saveFile: (file: ReplayFile) => void;
 }) {
   const [screen, setScreen] = useState<Screen>(() => {
     const pointer = pointers.load();
@@ -94,6 +100,15 @@ export function App({
     );
   }
 
+  /** Opens a replay on this device, leaving any Room pointer as it is, or lands back on the first screen with why it can't. */
+  function showReplay(contents: string) {
+    try {
+      setScreen({ kind: "replay", replay: launcher.openReplay(contents) });
+    } catch (e) {
+      setScreen({ kind: "home", message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   function leave() {
     pointers.clear();
     setScreen({ kind: "home" });
@@ -109,6 +124,7 @@ export function App({
           onPlayOnThisDevice={playOnThisDevice}
           onHostOnline={(name) => goOnline("host", name, launcher.hostOnline(name))}
           onJoin={(roomCode, name) => goOnline("friend", name, launcher.join(roomCode, name))}
+          onWatchReplay={showReplay}
         />
       );
     case "resuming":
@@ -116,6 +132,10 @@ export function App({
     case "connecting":
       return <p>Connecting to the relay…</p>;
     case "device":
-      return <SeatScreen device={screen.device} game={game} settings={settings} onLeave={leave} onGameOver={pointers.clear} />;
+      return (
+        <SeatScreen device={screen.device} game={game} settings={settings} onLeave={leave} onGameOver={pointers.clear} saveFile={saveFile} />
+      );
+    case "replay":
+      return <ReplayViewer replay={screen.replay} game={game} onClose={() => setScreen({ kind: "home" })} />;
   }
 }

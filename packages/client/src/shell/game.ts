@@ -1,5 +1,5 @@
 import type { Action, ConfigPatch, GameEvent, PlayerViewPayload, RoomCode, SeatId } from "@here-to-slay/protocol";
-import type { GameConnection } from "@here-to-slay/room";
+import type { GameConnection, Replay } from "@here-to-slay/room";
 import type { ComponentType } from "react";
 import type { RoomPointer } from "./pointer.js";
 import type { Sound } from "./sound.js";
@@ -107,6 +107,15 @@ export interface LaunchedRoom {
   online?: { token: string };
   /** Stops what the Room needs beyond its Seats' connections, such as the Host's own socket to the relay. */
   close?(): void;
+  /** The game's replay file, null before the game starts. Only a Room this device hosts has one. */
+  replayFile?(): ReplayFile | null;
+}
+
+/** A game's replay as a file for the player to save, from the Room's `replayFile()`. */
+export interface ReplayFile {
+  filename: string;
+  mimeType: string;
+  contents: string;
 }
 
 /** The Room a pointer names is gone: the relay no longer knows its Room Code. */
@@ -132,4 +141,11 @@ export interface Launcher {
    * and otherwise when it can't.
    */
   resume(pointer: RoomPointer): Promise<LaunchedRoom>;
+  /**
+   * Plays back the contents of a replay file on this device, never
+   * contacting the relay. Throws with a message for the player when the
+   * contents aren't a replay, were made with other card definitions, or
+   * don't play back.
+   */
+  openReplay(contents: string): Replay;
 }

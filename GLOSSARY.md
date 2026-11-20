@@ -41,3 +41,7 @@ _Avoid_: Pass-and-play, local mode
 **Pass-Device Step**:
 The screen that hides a player's hand until the next person at a shared device confirms they have it. It appears only when the device has more than one local Seat.
 _Avoid_: Handover (a returning friend taking back their Seat from a bot)
+
+**Replay**:
+A game played back from its seed, config, Seats, card definitions version and every applied action, which the Host can download as a file at game over. Opened from the first screen, the file plays the game back on that device, one action at a time, as a spectator or as one player, without contacting the relay. It only plays back under the same card definitions.
+_Avoid_: Save file (the Room's own record for resuming after a refresh is the same data, but it is not a Replay until downloaded), recording
