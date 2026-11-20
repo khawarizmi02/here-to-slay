@@ -191,7 +191,7 @@ main.board {
   letter-spacing: 2px;
 }
 
-/* A card, drawn with HTML and CSS until art exists (§12.4). It grows on hover or focus to be read. */
+/* A card, drawn with HTML and CSS until art exists (§12.4). Hover, focus or a long press zooms it to be read. */
 .card {
   display: flex;
   flex-direction: column;
@@ -207,8 +207,62 @@ main.board {
 
 .card:hover,
 .card:focus-within {
-  transform: scale(1.15);
   z-index: 1;
+  border-color: currentColor;
+}
+
+/* A long press zooms a card: on a touch screen the phone's own text selection and callout would get in the way. */
+@media (pointer: coarse) {
+  .card,
+  .card-chip {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+}
+
+.card-chip {
+  border-bottom: 1px dotted currentColor;
+  cursor: help;
+}
+
+/* The zoomed card: large, in the middle of the screen, and never in the pointer's way. */
+.card.card-zoom {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  width: min(320px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px;
+  font-size: 1rem;
+  pointer-events: none;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.4);
+}
+
+.card-zoom .card-name {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.card-zoom dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.card-zoom dl > div {
+  display: contents;
+}
+
+.card-zoom dt {
+  font-weight: bold;
+}
+
+.card-zoom dd {
+  margin: 0;
 }
 
 .card-name {

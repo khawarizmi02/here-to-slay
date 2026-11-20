@@ -5,6 +5,7 @@ import { Countdown } from "../shell/Countdown.js";
 import type { GameProps } from "../shell/game.js";
 import { cardDef, cardName, cardSubtitle } from "./cards.js";
 import { logLine, nameIn } from "./log.js";
+import { ZoomProvider, useZoomable } from "./zoom.js";
 
 type Player = PlayerView["players"][number];
 
@@ -57,68 +58,97 @@ export function Board({ view: payload, log, playing, responseOptions, deadline, 
   const opponents = view.players.filter((p) => p.id !== view.me);
 
   return (
-    <main className="board">
-      <p className="turn-line">
-        Turn {view.turnNumber}: {myTurn ? "your turn" : `${nameIn(view, view.activePlayer)}'s turn`}
-      </p>
+    <ZoomProvider>
+      <main className="board">
+        <p className="turn-line">
+          Turn {view.turnNumber}: {myTurn ? "your turn" : `${nameIn(view, view.activePlayer)}'s turn`}
+        </p>
 
-      <section aria-label="Opponents" className="opponents">
-        {opponents.map((p) => (
-          <OpponentArea key={p.id} player={p} active={p.id === view.activePlayer} />
-        ))}
-      </section>
-
-      <section aria-label="Centre" className="centre">
-        <MonsterRow view={view} control={control} act={act} />
-        <div className="piles">
-          <DeckPile view={view} />
-          <DiscardPile view={view} />
-          <DiceTray view={view} />
-        </div>
-      </section>
-
-      {playing && (
-        <section aria-label="Now playing" className="now-playing">
-          {/* Keyed by the event's place in the log, so each one plays its own highlight. */}
-          <motion.p key={events.length} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}>
-            {logLine(playing as unknown as GameEvent, view) ?? " "}
-          </motion.p>
+        <section aria-label="Opponents" className="opponents">
+          {opponents.map((p) => (
+            <OpponentArea key={p.id} player={p} active={p.id === view.activePlayer} />
+          ))}
         </section>
-      )}
 
-      <ResponseBar view={view} responseOptions={responseOptions} deadline={deadline} act={act} />
-
-      {view.pendingDecision && "options" in view.pendingDecision ? (
-        <DecisionModal view={view} decision={view.pendingDecision} legal={legal} deadline={deadline} act={act} />
-      ) : (
-        view.pendingDecision && <p>Waiting for {nameIn(view, view.pendingDecision.player)} to choose…</p>
-      )}
-
-      {me && (
-        <section aria-label="Your area" className="player-area">
-          <Party player={me} control={control} act={act} />
-          <ActionBar view={view} control={control} act={act} notYourTurn={notYourTurn} />
-          <Hand view={view} control={control} act={act} />
+        <section aria-label="Centre" className="centre">
+          <MonsterRow view={view} control={control} act={act} />
+          <div className="piles">
+            <DeckPile view={view} />
+            <DiscardPile view={view} />
+            <DiceTray view={view} />
+          </div>
         </section>
-      )}
 
-      <GameLog view={view} events={events} />
-    </main>
+        {playing && (
+          <section aria-label="Now playing" className="now-playing">
+            {/* Keyed by the event's place in the log, so each one plays its own highlight. */}
+            <motion.p key={events.length} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}>
+              {logLine(playing as unknown as GameEvent, view) ?? " "}
+            </motion.p>
+          </section>
+        )}
+
+        <ResponseBar view={view} responseOptions={responseOptions} deadline={deadline} act={act} />
+
+        {view.pendingDecision && "options" in view.pendingDecision ? (
+          <DecisionModal view={view} decision={view.pendingDecision} legal={legal} deadline={deadline} act={act} />
+        ) : (
+          view.pendingDecision && <p>Waiting for {nameIn(view, view.pendingDecision.player)} to choose…</p>
+        )}
+
+        {me && (
+          <section aria-label="Your area" className="player-area">
+            <Party player={me} control={control} act={act} />
+            <ActionBar view={view} control={control} act={act} notYourTurn={notYourTurn} />
+            <Hand view={view} control={control} act={act} />
+          </section>
+        )}
+
+        <GameLog view={view} events={events} />
+      </main>
+    </ZoomProvider>
   );
 }
 
 type ControlFn = (type: Action["type"], subject?: string) => Control;
 
-/** A single card, drawn with HTML and CSS (§12.4). It grows on hover or focus to be read. */
+/** A single card, drawn with HTML and CSS (§12.4). Hover, focus or a long press zooms it to be read. */
 export function CardView({ card, children, className }: { card: Card; children?: ReactNode; className?: string }) {
   const def = cardDef(card);
+  const zoomable = useZoomable(card);
   return (
-    <div className={`card card-${def?.type ?? "unknown"}${className ? ` ${className}` : ""}`} data-card={card.id}>
+    <div {...zoomable} className={`card card-${def?.type ?? "unknown"}${className ? ` ${className}` : ""}`} data-card={card.id}>
       <strong className="card-name">{cardName(card)}</strong>
       {def && <span className="card-subtitle">{cardSubtitle(def)}</span>}
       {def?.text && <span className="card-text">{def.text}</span>}
       {children}
     </div>
+  );
+}
+
+/** A card shown by name alone, as an equipped item or a slain monster: it zooms like a whole card. */
+function CardChip({ card }: { card: Card }) {
+  const zoomable = useZoomable(card);
+  return (
+    <span {...zoomable} className="card-chip" data-card={card.id}>
+      {cardName(card)}
+    </span>
+  );
+}
+
+/** A player's slain monsters, each zoomable. */
+function SlainPile({ monsters }: { monsters: Card[] }) {
+  if (monsters.length === 0) return null;
+  return (
+    <p className="slain">
+      Slain:{" "}
+      {monsters.map((m, i) => (
+        <span key={m.id}>
+          {i > 0 && ", "}
+          <CardChip card={m} />
+        </span>
+      ))}
+    </p>
   );
 }
 
@@ -153,7 +183,11 @@ function OpponentArea({ player, active }: { player: Player; active: boolean }) {
         {player.leader && <CardView card={player.leader} className="leader" />}
         {player.party.map((h) => (
           <CardView key={h.hero.id} card={h.hero}>
-            {h.item && <span className="equipped">+ {cardName(h.item)}</span>}
+            {h.item && (
+              <span className="equipped">
+                + <CardChip card={h.item} />
+              </span>
+            )}
           </CardView>
         ))}
       </div>
@@ -187,18 +221,21 @@ function DeckPile({ view }: { view: PlayerView }) {
 function DiscardPile({ view }: { view: PlayerView }) {
   const top = view.discardPile.at(-1);
   return (
-    <details className="pile discard">
-      <summary>Discard pile ({view.discardPile.length})</summary>
-      {top ? (
-        <ol aria-label="Discard pile">
-          {[...view.discardPile].reverse().map((c) => (
-            <li key={c.id}>{cardName(c)}</li>
-          ))}
-        </ol>
-      ) : (
-        <p>Empty</p>
-      )}
-    </details>
+    <section aria-label="Discard" className="pile discard">
+      {top && <CardView card={top} />}
+      <details>
+        <summary>Discard pile ({view.discardPile.length})</summary>
+        {top ? (
+          <ol aria-label="Discard pile">
+            {[...view.discardPile].reverse().map((c) => (
+              <li key={c.id}>{cardName(c)}</li>
+            ))}
+          </ol>
+        ) : (
+          <p>Empty</p>
+        )}
+      </details>
+    </section>
   );
 }
 
@@ -318,17 +355,17 @@ function Party({ player, control, act }: { player: Player; control: ControlFn; a
       {player.leader && <CardView card={player.leader} className="leader" />}
       {player.party.map((h) => (
         <CardView key={h.hero.id} card={h.hero} {...(h.rolledThisTurn ? { className: "rolled" } : {})}>
-          {h.item && <span className="equipped">+ {cardName(h.item)}</span>}
+          {h.item && (
+              <span className="equipped">
+                + <CardChip card={h.item} />
+              </span>
+            )}
           <ControlButton label={`Roll for ${cardName(h.hero)}`} control={control("ROLL_HERO_EFFECT", h.hero.id)} onPick={([a]) => act(a!)}>
             Roll
           </ControlButton>
         </CardView>
       ))}
-      {player.slainMonsters.length > 0 && (
-        <p className="slain">
-          Slain: {player.slainMonsters.map((m) => cardName(m)).join(", ")}
-        </p>
-      )}
+      <SlainPile monsters={player.slainMonsters} />
     </section>
   );
 }
