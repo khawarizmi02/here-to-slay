@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Action } from "@here-to-slay/protocol";
 import { placeholderCardDefs } from "@here-to-slay/cards";
-import { createEasyBot, createRng, createRoomEngine, nextFloat, type GameState } from "../src/index.js";
+import { botFactory, createEasyBot, createRng, createRoomEngine, nextFloat, type GameState } from "../src/index.js";
 import { players } from "./cards.js";
 import { act, decision, defsWith, dice, engineWith, equip, give, inParty, leader, play, start, type Engine } from "./scenario.js";
 
@@ -167,6 +167,20 @@ describe("easy bot, its own turn", () => {
     expect(legal).not.toContain("DRAW_CARD");
     expect(legal).toContain("PLAY_HERO");
     expect(choose(e, state, "p1", () => 0)).toEqual({ type: "END_TURN", player: "p1" });
+  });
+});
+
+describe("the bot for a Seat", () => {
+  it("is the easy bot at either difficulty: there is no normal bot yet", () => {
+    const e = engine();
+    const state = reveal(give(game(e), "p1", "hero_wizard#0"), "monster_eight#0");
+    const legal = e.getLegalActions(state, "p1");
+    for (const difficulty of ["easy", "normal"] as const) {
+      for (const r of [0, 0.999]) {
+        const bot = botFactory(defs, () => r)({ id: "p1", difficulty });
+        expect(bot.chooseAction(e.getPlayerView(state, "p1"), legal)).toEqual({ type: "ATTACK_MONSTER", player: "p1", monster: "monster_eight#0" });
+      }
+    }
   });
 });
 

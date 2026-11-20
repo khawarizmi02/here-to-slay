@@ -3,7 +3,7 @@ import { createRoomEngine, type GameEvent, type GameState, type PlayerView } fro
 import { describe, expect, it } from "vitest";
 import type { Action, RoomMsg } from "@here-to-slay/protocol";
 import { Room, type Bot } from "../src/index.js";
-import { Client, FakeClock, FakeTimers, seededRandom } from "./harness.js";
+import { Client, FakeClock, FakeTimers, fuzzPick, latestPrompt, seededRandom } from "./harness.js";
 
 /*
  * The Room on the real rules engine (ADR-0002: the Room's own tests stay on
@@ -33,23 +33,6 @@ function realRoom(extra: string[], bots = 0, bot?: () => Bot) {
 }
 
 const viewOf = (client: Client) => client.last("update").view as PlayerView;
-
-/** The response prompt standing after these messages: one sent after the latest update. */
-function latestPrompt(msgs: readonly RoomMsg[]): RoomMsg | undefined {
-  let prompt: RoomMsg | undefined;
-  for (const msg of msgs) {
-    if (msg.t === "update") prompt = undefined;
-    else if (msg.t === "passDevice" || msg.t === "respond") prompt = msg;
-  }
-  return prompt;
-}
-
-/** The fuzz policy (TECHNICAL_DESIGN.md §13.1): a random legal action, and END_TURN only when nothing else is legal. */
-function fuzzPick(legal: readonly Action[], random: () => number): Action {
-  const others = legal.filter((a) => a.type !== "END_TURN");
-  const pool = others.length > 0 ? others : legal;
-  return pool[Math.floor(random() * pool.length)]!;
-}
 
 /** Fuzz-policy bots, counting every move any of them makes in `moves.count`. */
 const fuzzBots =

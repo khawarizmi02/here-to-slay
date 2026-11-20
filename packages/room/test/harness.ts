@@ -164,12 +164,24 @@ export function sendMove(clients: Map<string, Client>, move: Move, clientSeq: nu
  * update. The Room sends the prompt again after every update while it stands.
  */
 export function promptOf(client: Client): Extract<RoomMsg, { t: "passDevice" | "respond" }> | undefined {
+  return latestPrompt(client.inbox);
+}
+
+/** The response prompt standing after these messages: one sent after the latest update. */
+export function latestPrompt(msgs: readonly RoomMsg[]): Extract<RoomMsg, { t: "passDevice" | "respond" }> | undefined {
   let prompt: Extract<RoomMsg, { t: "passDevice" | "respond" }> | undefined;
-  for (const msg of client.inbox) {
+  for (const msg of msgs) {
     if (msg.t === "update") prompt = undefined;
     else if (msg.t === "passDevice" || msg.t === "respond") prompt = msg;
   }
   return prompt;
+}
+
+/** The fuzz policy (TECHNICAL_DESIGN.md §13.1): a random legal action, and END_TURN only when nothing else is legal. */
+export function fuzzPick(legal: readonly Action[], random: () => number): Action {
+  const others = legal.filter((a) => a.type !== "END_TURN");
+  const pool = others.length > 0 ? others : legal;
+  return pool[Math.floor(random() * pool.length)]!;
 }
 
 /**
