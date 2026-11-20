@@ -843,6 +843,7 @@ The full `GameState` exists only in the Host's Room and is **never** sent over t
 | Pending decision | Full if it's theirs | "Waiting for P2 to choose…" |
 | Cards seen via LOOK effects | Shown in their decision prompt only | — |
 | Legal actions | Full, in `legalActions` | — |
+| Rule flags (§3.9) | Full, in `config` | Full, in `config` |
 
 Other players' hands appear **only as a count**, with no card ids, so nobody can track a card instance as it moves around. PULL takes a random card using the engine's RNG, with no Decision; `CARD_PULLED` shows the card only to the two players involved. Cards shown by LOOK or a search appear only in that player's Decision.
 
@@ -1030,7 +1031,7 @@ Responses:
 
 Decisions: target the player closest to winning. When a Decision gives up its own card, give up the least useful one (a hero of a class it already has; a hero whose class it keeps without it). Decline a "you may" that would make it discard or sacrifice.
 
-"Close to winning" is one class or one monster away; "closest to winning" is the larger of classes owned out of `classesToWin` and monsters slain out of `monstersToWin`. The view holds no rule config, so the bot uses the defaults. With no single leading opponent, it drops nobody's roll.
+"Close to winning" is one class or one monster away; "closest to winning" is the larger of classes owned out of `classesToWin` and monsters slain out of `monstersToWin`. The bot uses the default rules, not the game's `config` in its view. With no single leading opponent, it drops nobody's roll.
 
 ### 11.2 Normal bot (later)
 - Heuristic scoring: give each state a score based on classes owned, monsters slain, hand size, and the opponents' progress. Simulate each legal action one step ahead and pick the best.
@@ -1082,6 +1083,7 @@ Decisions: target the player closest to winning. When a Decision gives up its ow
 ```
 <App>
  ├ <Home/>                   Play on this device / Host online / Join with a Room Code
+ ├ <RulesReference/>         §3 in plain words, over Home or the board; in a game, its rule flags
  ├ <Lobby/>                  Seats, add local/bot Seats, rules config
  └ <GameScreen>
     ├ <OpponentArea/> ×N

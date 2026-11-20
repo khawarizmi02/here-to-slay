@@ -50,6 +50,8 @@ export interface GameLayer {
   Board: GameComponent;
   /** The Host's rules form for the lobby. */
   Rules: ComponentType<RulesProps>;
+  /** The rules reference, shown over the first screen with the default rules. The board opens its own, with the game's. */
+  RulesReference: ComponentType<{ onClose(): void }>;
   /**
    * The Seat the game waits on for a turn action or a decision, read from
    * any Seat's view (the Room uses Seat ids as player ids). Null when it

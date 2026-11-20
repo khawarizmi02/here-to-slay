@@ -104,8 +104,8 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
 
   /**
    * How close a player is to winning: the larger of classes owned out of
-   * `classesToWin` and monsters slain out of `monstersToWin`. The view holds
-   * no rule config, so this uses the defaults.
+   * `classesToWin` and monsters slain out of `monstersToWin`. It uses the
+   * defaults, not the game's rules in the view's `config`.
    */
   const winScore = (p: PlayerInView): number =>
     Math.max(partyClasses(p).size / DEFAULT_CONFIG.classesToWin, p.slainMonsters.length / DEFAULT_CONFIG.monstersToWin);

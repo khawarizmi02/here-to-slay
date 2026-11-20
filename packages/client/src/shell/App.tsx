@@ -90,6 +90,7 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
       return (
         <Home
           message={screen.message}
+          RulesReference={game.RulesReference}
           onPlayOnThisDevice={playOnThisDevice}
           onHostOnline={(name) => goOnline("host", name, launcher.hostOnline(name))}
           onJoin={(roomCode, name) => goOnline("friend", name, launcher.join(roomCode, name))}

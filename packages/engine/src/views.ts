@@ -26,6 +26,7 @@ export function getPlayerView(defs: CardIndex, state: GameState, viewer: PlayerI
   const me = state.players.find((p) => p.id === viewer);
   return {
     me: viewer,
+    config: { ...state.config },
     phase: { ...state.phase },
     turnNumber: state.turnNumber,
     activePlayer: state.activePlayer,

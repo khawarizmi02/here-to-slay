@@ -76,6 +76,16 @@ describe("createGame setup", () => {
     for (const p of state.players) expect(p.hand).toHaveLength(2);
     expect(state.activeMonsters).toHaveLength(1);
   });
+
+  it("shows every player and spectator the game's rule flags, which are public", () => {
+    const state = start("seed", 2, { firstPlayerMethod: "random", monstersToWin: 4, challengeTieWinner: "challenged" });
+    for (const viewer of ["p1", "spectator"] as const) {
+      const { config } = engine.getPlayerView(state, viewer);
+      expect(config.monstersToWin).toBe(4);
+      expect(config.challengeTieWinner).toBe("challenged");
+      expect(config.handLimit).toBe(7);
+    }
+  });
 });
 
 describe("first player and turn order", () => {
