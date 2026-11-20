@@ -53,7 +53,7 @@ describe("a Challenge through the Room on the real engine", () => {
     host.send({ t: "startGame" });
 
     host.send({ t: "action", seat: "s1", action: PLAY, clientSeq: 0 });
-    expect(viewOf(bob).responseWindow).toEqual({ kind: "challenge", awaiting: ["s2"], card: { id: HERO, def: HERO.split("#")[0] } });
+    expect(viewOf(bob).responseWindow).toEqual({ kind: "challenge", awaiting: ["s2"], player: "s1", card: { id: HERO, def: HERO.split("#")[0] } });
     expect(bob.last("passDevice")).toEqual({ t: "passDevice", seat: "s2", name: "Bob" });
 
     bob.send({ t: "confirmPassDevice", seat: "s2" });

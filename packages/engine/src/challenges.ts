@@ -87,8 +87,8 @@ export function challengeDuelStep(state: GameState, duel: ChallengeDuelFrame, ev
   if (!duel.modified) {
     duel.modified = true;
     pushModifierWindow(state, [
-      { roll: duel.challengerRoll!, player: duel.challenger, total: duel.challengerTotal },
-      { roll: duel.defenderRoll!, player: duel.defender, total: duel.defenderTotal },
+      { roll: duel.challengerRoll!, player: duel.challenger, total: duel.challengerTotal, rollKind: "challenge", side: "challenger" },
+      { roll: duel.defenderRoll!, player: duel.defender, total: duel.defenderTotal, rollKind: "challenge", side: "defender" },
     ]);
     return;
   }

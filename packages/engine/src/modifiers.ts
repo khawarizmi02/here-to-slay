@@ -8,8 +8,11 @@ import type { Action, CardIndex, CardInstanceId, GameEvent, GameState, ModifierW
  * everyone. When it closes, the frame below it gets the final totals.
  */
 
+/** A roll as a Modifier Window opens on it, before any Modifier: WindowRoll without `modifiers`, kept a union (a plain Omit would merge its variants). */
+type NewWindowRoll = WindowRoll extends infer R ? (R extends unknown ? Omit<R, "modifiers"> : never) : never;
+
 /** Opens a Modifier Window on `rolls`, each at its total so far. */
-export function pushModifierWindow(state: GameState, rolls: Omit<WindowRoll, "modifiers">[]): void {
+export function pushModifierWindow(state: GameState, rolls: NewWindowRoll[]): void {
   state.stack.push({ kind: "modifierWindow", rolls: rolls.map((r) => ({ ...r, modifiers: [] })), passed: [] });
 }
 

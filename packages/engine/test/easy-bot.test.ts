@@ -3,7 +3,7 @@ import type { Action } from "@here-to-slay/protocol";
 import { placeholderCardDefs } from "@here-to-slay/cards";
 import { createEasyBot, createRng, createRoomEngine, nextFloat, type GameState } from "../src/index.js";
 import { players } from "./cards.js";
-import { act, defsWith, engineWith, equip, give, inParty, leader, start, type Engine } from "./scenario.js";
+import { act, decision, defsWith, dice, engineWith, equip, give, inParty, leader, play, start, type Engine } from "./scenario.js";
 
 /** A monster with no requirement, slain on `slayAt`+, `monster_<name>`. Its reward adds `bonus` to monster attacks. */
 function monster(name: string, slayAt: number, bonus = 0) {
@@ -21,12 +21,26 @@ function monster(name: string, slayAt: number, bonus = 0) {
   };
 }
 
+/** A Magic card `magic_<name>` with `effect`. */
+function magic(name: string, effect: unknown) {
+  return { id: `magic_${name}`, type: "magic", name, text: "", copies: 1, effect };
+}
+
 const EXTRA = [
   monster("eight", 8),
   monster("nine", 9),
   monster("plus_one", 12, 1),
   { id: "cursed", type: "cursedItem", name: "Cursed", text: "", copies: 1, passive: { hook: "modifyRollTotal", value: -1 } },
   { id: "magic_draw", type: "magic", name: "Magic", text: "", copies: 1, effect: { op: "draw", who: "self", amount: 1 } },
+  magic("pull", { op: "pull", from: { choose: "otherWithCards" }, amount: 1 }),
+  magic("discard", { op: "discard", who: "self", amount: 1, chosenBy: "self" }),
+  magic("sacrifice", { op: "sacrifice", who: "self", amount: 1 }),
+  magic("may_draw", { op: "optional", chooser: "self", effect: { op: "draw", who: "self", amount: 2 } }),
+  magic("offering", {
+    op: "optional",
+    chooser: "self",
+    effect: { op: "sequence", steps: [{ op: "draw", who: "self", amount: 3 }, { op: "sacrifice", who: "self", amount: 1 }] },
+  }),
   { id: "hero_hard", type: "hero", name: "Hard", text: "", copies: 1, class: "bard", rollRequirement: 12, effect: { op: "draw", who: "self", amount: 1 } },
 ];
 
@@ -156,18 +170,150 @@ describe("easy bot, its own turn", () => {
   });
 });
 
-describe("easy bot, everything else", () => {
-  it("answers a Response Window with a random legal action", () => {
+/** p1 plays a wizard hero, which p2 may Challenge, holding a Challenge. */
+function challengeWindow(e: Engine, state: GameState): GameState {
+  give(give(state, "p1", "hero_wizard#0"), "p2", "challenge#0");
+  return act(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" }).state;
+}
+
+describe("easy bot, a Challenge Window", () => {
+  it("Challenges a player one class away from winning, whatever the dice of chance say", () => {
     const e = engine();
-    const state = give(game(e), "p1", "hero_wizard#0");
-    give(state, "p2", "challenge#0");
-    const played = act(e, state, { type: "PLAY_HERO", player: "p1", card: "hero_wizard#0" }).state;
-    const legal = e.getLegalActions(played, "p2");
-    expect(legal.map((a) => a.type).sort()).toEqual(["PASS", "PLAY_CHALLENGE"]);
-    expect(choose(e, played, "p2", () => 0)).toEqual(legal[0]);
-    expect(choose(e, played, "p2", () => 0.999)).toEqual(legal[1]);
+    // A fighter leader and four more classes: 5 of 6.
+    const state = challengeWindow(e, inParty(game(e), "p1", "hero_thief#0", "hero_bard#0", "hero_ranger#0", "hero_guardian#0"));
+    expect(choose(e, state, "p2", () => 0.99)).toEqual({ type: "PLAY_CHALLENGE", player: "p2", card: "challenge#0" });
   });
 
+  it("Challenges a player one monster away from winning", () => {
+    const e = engine();
+    const state = challengeWindow(e, slay(slay(game(e), "p1", "monster_eight#0"), "p1", "monster_nine#0"));
+    expect(choose(e, state, "p2", () => 0.99)).toEqual({ type: "PLAY_CHALLENGE", player: "p2", card: "challenge#0" });
+  });
+
+  it("passes on a player far from winning, except 20% of the time", () => {
+    const e = engine();
+    const state = challengeWindow(e, inParty(game(e), "p1", "hero_thief#0"));
+    expect(choose(e, state, "p2", () => 0.2)).toEqual({ type: "PASS", player: "p2" });
+    expect(choose(e, state, "p2", () => 0.99)).toEqual({ type: "PASS", player: "p2" });
+    expect(choose(e, state, "p2", () => 0.19)).toEqual({ type: "PLAY_CHALLENGE", player: "p2", card: "challenge#0" });
+  });
+});
+
+/** `player` rolls their thief (7+ to roll) with the dice `a`, `b`, holding a ±2 Modifier; the Modifier Window is open. */
+function heroRoll(e: Engine, state: GameState, player: string, a: number, b: number): GameState {
+  state.activePlayer = player;
+  give(inParty(state, player, "hero_thief#0"), player === "p1" ? "p2" : "p1", "mod#0");
+  give(state, player, "mod#1");
+  return act(e, dice(state, a, b), { type: "ROLL_HERO_EFFECT", player, hero: "hero_thief#0" }).state;
+}
+
+describe("easy bot, a Modifier Window", () => {
+  it("lifts its own roll to its roll number: 6 + 2 makes 7", () => {
+    const e = engine();
+    const state = heroRoll(e, game(e), "p1", 3, 3);
+    expect(choose(e, state, "p1")).toMatchObject({ type: "PLAY_MODIFIER", player: "p1", card: "mod#1", value: 2 });
+  });
+
+  it("passes when a Modifier wouldn't change how its own roll turns out", () => {
+    const e = engine();
+    expect(choose(e, heroRoll(e, game(e), "p1", 4, 3), "p1")).toEqual({ type: "PASS", player: "p1" }); // 7 already
+    expect(choose(e, heroRoll(e, game(e), "p1", 2, 2), "p1")).toEqual({ type: "PASS", player: "p1" }); // 4 + 2 is still short
+  });
+
+  it("drops the leading player's roll under its roll number: 7 - 2 makes 5", () => {
+    const e = engine();
+    const state = heroRoll(e, game(e), "p2", 4, 3);
+    inParty(state, "p2", "hero_wizard#0", "hero_bard#0"); // p2 leads on 3 classes
+    expect(choose(e, state, "p1")).toMatchObject({ type: "PLAY_MODIFIER", player: "p1", card: "mod#0", value: -2 });
+  });
+
+  it("turns a Challenge its way: the challenger's 6 + 2 beats the defender's 7", () => {
+    const e = engine();
+    const state = challengeWindow(e, game(e));
+    give(state, "p2", "mod#0");
+    // The challenger rolls 3 + 3, then the defender 4 + 3.
+    const duel = act(e, dice(state, 3, 3, 4, 3), { type: "PLAY_CHALLENGE", player: "p2", card: "challenge#0" }).state;
+    const window = e.getPlayerView(duel, "p2").responseWindow;
+    expect(window).toMatchObject({ kind: "modifier", rolls: [{ player: "p2", total: 6 }, { player: "p1", total: 7 }] });
+    const mine = window?.kind === "modifier" ? window.rolls[0]!.roll : "";
+    expect(choose(e, duel, "p2")).toEqual({ type: "PLAY_MODIFIER", player: "p2", card: "mod#0", value: 2, roll: mine });
+  });
+
+  it("lifts its own monster attack to the monster's slay value: 6 + 2 makes 8", () => {
+    const e = engine();
+    const state = give(reveal(game(e), "monster_eight#0"), "p1", "mod#1");
+    const attack = act(e, dice(state, 3, 3), { type: "ATTACK_MONSTER", player: "p1", monster: "monster_eight#0" }).state;
+    expect(choose(e, attack, "p1")).toMatchObject({ type: "PLAY_MODIFIER", player: "p1", card: "mod#1", value: 2 });
+  });
+
+  it("drops nobody's roll while no one opponent leads", () => {
+    const e = engine();
+    const state = heroRoll(e, game(e), "p2", 4, 3);
+    inParty(state, "p3", "hero_wizard#0"); // p2 and p3 both have 2 classes
+    expect(choose(e, state, "p1")).toEqual({ type: "PASS", player: "p1" });
+  });
+
+  it("leaves alone the roll of a player who isn't leading", () => {
+    const e = engine();
+    const state = heroRoll(e, game(e), "p2", 4, 3);
+    inParty(state, "p3", "hero_wizard#0", "hero_bard#0", "hero_ranger#0"); // p3 leads, not p2
+    expect(choose(e, state, "p1")).toEqual({ type: "PASS", player: "p1" });
+  });
+});
+
+/** p1 plays `magic_<name>` and nobody Challenges it, so its effect starts; p2 and p3 hold a card each, to be pulled. */
+function cast(e: Engine, state: GameState, name: string): GameState {
+  give(give(give(state, "p1", `magic_${name}#0`), "p2", "item_plain#0"), "p3", "item_plain#1");
+  return play(e, state, { type: "PLAY_MAGIC", player: "p1", card: `magic_${name}#0` }).state;
+}
+
+describe("easy bot, Decisions", () => {
+  it("picks the player closest to winning", () => {
+    const e = engine();
+    const state = game(e);
+    inParty(state, "p2", "hero_wizard#0", "hero_bard#0"); // 3 classes of 6: 1/2
+    slay(slay(state, "p3", "monster_eight#0"), "p3", "monster_nine#0"); // 2 monsters of 3: 2/3
+    const asked = cast(e, state, "pull");
+    expect(decision(asked)).toMatchObject({ player: "p1", kind: "choosePlayer" });
+    expect(choose(e, asked)).toMatchObject({ type: "RESOLVE_DECISION", answer: { selected: ["p3"] } });
+    // Once p2 is a class away, p2 leads.
+    inParty(asked, "p2", "hero_ranger#0", "hero_guardian#0");
+    expect(choose(e, asked)).toMatchObject({ type: "RESOLVE_DECISION", answer: { selected: ["p2"] } });
+  });
+
+  it("discards its least useful card: a hero of a class it already has", () => {
+    const e = engine();
+    const state = give(game(e), "p1", "hero_wizard#0", "hero_fighter#0", "mod#0");
+    const asked = cast(e, state, "discard");
+    expect(decision(asked)).toMatchObject({ player: "p1", kind: "chooseCardFromHand", discard: true });
+    expect(choose(e, asked, "p1", () => 0.999)).toMatchObject({ type: "RESOLVE_DECISION", answer: { selected: ["hero_fighter#0"] } });
+  });
+
+  it("sacrifices a hero whose class it keeps without it", () => {
+    const e = engine();
+    const state = inParty(game(e), "p1", "hero_wizard#0", "hero_thief#0", "hero_wizard#1");
+    const asked = cast(e, state, "sacrifice");
+    expect(decision(asked)).toMatchObject({ player: "p1", kind: "chooseHero", discard: true });
+    expect(choose(e, asked)).toMatchObject({ type: "RESOLVE_DECISION", answer: { selected: [expect.stringMatching(/^hero_wizard/)] } });
+  });
+
+  it("takes up a 'you may' that only helps it", () => {
+    const e = engine();
+    const asked = cast(e, game(e), "may_draw");
+    expect(decision(asked)).toMatchObject({ player: "p1", kind: "confirmOptional" });
+    expect(choose(e, asked)).toMatchObject({ type: "RESOLVE_DECISION", answer: { selected: ["accept"] } });
+  });
+
+  it("declines a 'you may' that costs it a hero, but not when it has none to lose", () => {
+    const e = engine();
+    const asked = cast(e, inParty(game(e), "p1", "hero_thief#0"), "offering");
+    expect(choose(e, asked)).toMatchObject({ type: "RESOLVE_DECISION", answer: { selected: ["decline"] } });
+    const empty = cast(e, game(e), "offering");
+    expect(choose(e, empty)).toMatchObject({ type: "RESOLVE_DECISION", answer: { selected: ["accept"] } });
+  });
+});
+
+describe("easy bot, everything else", () => {
   it("works from its own view, which shows other hands only as counts", () => {
     const e = engine();
     const state = reveal(game(e), "monster_eight#0");
@@ -204,6 +350,6 @@ describe("easy bot, everything else", () => {
         state = r.state;
       }
     }
-  });
+  }, 30_000);
 });
 

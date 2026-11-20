@@ -17,7 +17,7 @@ function responseWindowView(state: GameState): PlayerView["responseWindow"] {
   if (window === undefined) return null;
   const awaiting = awaitingResponses(state, window);
   if (window.kind === "modifierWindow") return { kind: "modifier", awaiting, rolls: clone(window.rolls) };
-  return { kind: "challenge", awaiting, card: { id: window.card, def: state.cards[window.card]! } };
+  return { kind: "challenge", awaiting, player: window.player, card: { id: window.card, def: state.cards[window.card]! } };
 }
 
 /** One player's redacted view (TECHNICAL_DESIGN.md §9). Shares nothing with `state`. */

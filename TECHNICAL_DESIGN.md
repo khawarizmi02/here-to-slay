@@ -846,7 +846,7 @@ The full `GameState` exists only in the Host's Room and is **never** sent over t
 
 Other players' hands appear **only as a count**, with no card ids, so nobody can track a card instance as it moves around. PULL takes a random card using the engine's RNG, with no Decision; `CARD_PULLED` shows the card only to the two players involved. Cards shown by LOOK or a search appear only in that player's Decision.
 
-Every `PlayerView` carries a public `responseWindow: { kind: "challenge"; awaiting: PlayerId[]; card: CardView } | { kind: "modifier"; awaiting: PlayerId[] } | null`; a Challenge Window names the card waiting in limbo. The engine offers `PASS` to everyone in a window, whatever they hold, and the Room decides whom to interrupt (Section 7.4).
+Every `PlayerView` carries a public `responseWindow: { kind: "challenge"; awaiting: PlayerId[]; player: PlayerId; card: CardView } | { kind: "modifier"; awaiting: PlayerId[]; rolls: WindowRoll[] } | null`; a Challenge Window names the card waiting in limbo and who played it. A Modifier Window lists its rolls with their totals so far; a hero or monster roll says the total it `needs`, and a Challenge roll its `side`. A "you may" Decision on a card's effect carries that `effect`, as public as the card's text. The engine offers `PASS` to everyone in a window, whatever they hold, and the Room decides whom to interrupt (Section 7.4).
 
 Events are filtered the same way: `CARD_DRAWN` shows the card to the drawer and only "P1 drew a card" to everyone else.
 
@@ -1028,7 +1028,9 @@ Responses:
 - Challenge a card if the player who played it is close to winning, or randomly 20% of the time.
 - Play modifiers to push its own rolls over the threshold, or push the leader's rolls under it.
 
-Decisions: target the player closest to winning.
+Decisions: target the player closest to winning. When a Decision gives up its own card, give up the least useful one (a hero of a class it already has; a hero whose class it keeps without it). Decline a "you may" that would make it discard or sacrifice.
+
+"Close to winning" is one class or one monster away; "closest to winning" is the larger of classes owned out of `classesToWin` and monsters slain out of `monstersToWin`. The view holds no rule config, so the bot uses the defaults. With no single leading opponent, it drops nobody's roll.
 
 ### 11.2 Normal bot (later)
 - Heuristic scoring: give each state a score based on classes owned, monsters slain, hand size, and the opponents' progress. Simulate each legal action one step ahead and pick the best.

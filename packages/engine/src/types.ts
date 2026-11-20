@@ -71,6 +71,8 @@ export interface PendingDecision {
   options: DecisionOption[];
   /** Whether the pick gives up the chooser's own card: the Room picks a random answer for it on a timeout. */
   discard: boolean;
+  /** For a "you may" on a card's effect: what taking it up does, as the card says (public, like its text). */
+  effect?: Effect;
 }
 
 /**
@@ -197,13 +199,18 @@ export interface AppliedModifier {
   value: number;
 }
 
-/** One roll in a Modifier Window: `total` is its dice, passive bonus and every Modifier played on it so far. */
-export interface WindowRoll {
+/**
+ * One roll in a Modifier Window: `total` is its dice, passive bonus and every
+ * Modifier played on it so far. A hero or monster roll says the total it
+ * `needs`: the hero's roll number, or the monster's slay value. A Challenge
+ * roll says its `side` instead, as it is compared to the other side's.
+ */
+export type WindowRoll = {
   roll: string;
   player: PlayerId;
   total: number;
   modifiers: AppliedModifier[];
-}
+} & ({ rollKind: "heroEffect" | "monsterAttack"; needs: number } | { rollKind: "challenge"; side: "challenger" | "defender" });
 
 /**
  * A Modifier Window (GLOSSARY.md "Response Window") on the roll or Challenge
@@ -410,11 +417,11 @@ export type PlayerView = {
   activeMonsters: CardView[];
   /**
    * The open Response Window and who it still waits on, in turn order. A
-   * Challenge Window names the card in limbo; a Modifier Window lists its
+   * Challenge Window names the card in limbo and who played it; a Modifier Window lists its
    * rolls (one, or a Challenge's two) with their totals so far.
    */
   responseWindow:
-    | { kind: "challenge"; awaiting: PlayerId[]; card: CardView }
+    | { kind: "challenge"; awaiting: PlayerId[]; player: PlayerId; card: CardView }
     | { kind: "modifier"; awaiting: PlayerId[]; rolls: WindowRoll[] }
     | null;
   /** In full for the player who must answer; everyone else sees only who that is. */
