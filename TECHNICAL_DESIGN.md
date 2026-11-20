@@ -1177,6 +1177,7 @@ expect(r.state.players[0].party).toHaveLength(2);
 **M6: Bots**
 - Easy bot. Bots fill empty Seats and take over abandoned remote Seats.
 - ✅ A human versus three easy bots finishes without stalls. 1,000 all-bot games finish with no errors.
+- The all-bot games run through the Room, each capped at 10,000 actions with PASSes not counted, as in §13.1: easy bots sometimes stalemate, and over 1,000 games the longest takes over 5,000. `pnpm test` plays 100 of them; `pnpm bot-games` plays all 1,000.
 
 **M7: Polish**
 - Animations, sounds, card zoom, rules reference screen, settings (animation speed, auto-resolve), replay export and import.

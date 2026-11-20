@@ -10,7 +10,7 @@ import {
   type RelaySocket,
   type RoomEngine,
 } from "@here-to-slay/room";
-import { createRoomEngine, type GameState } from "@here-to-slay/engine";
+import { botFactory, createRoomEngine, type GameState } from "@here-to-slay/engine";
 import { CARD_DEFS } from "../board/cards.js";
 import { RoomClosedError, type LaunchedRoom, type LaunchedSeat, type Launcher } from "../shell/game.js";
 import { stayAttached, stayJoined } from "./reconnect.js";
@@ -31,6 +31,8 @@ export function browserLauncher(relayUrl: string, random: () => number): Launche
     engine,
     clock: { now: () => Date.now() },
     random,
+    // Every bot Seat, and every friend's Seat a bot takes over, is an easy bot until the normal bot exists.
+    bot: botFactory(CARD_DEFS, random),
     // The DOM types its handlers as taking an event, which the store's handlers ignore.
     store: new IndexedDbActionLogStore(indexedDB as unknown as IdbFactoryLike),
   };

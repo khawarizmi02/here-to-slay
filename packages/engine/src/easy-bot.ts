@@ -302,3 +302,12 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
     },
   };
 }
+
+/**
+ * Makes the bot for a bot Seat, or for a remote Seat a bot takes over.
+ * Matches the Room's `BotFactory` by shape. Every difficulty gets
+ * the easy bot until the normal bot exists. The bots share `random`.
+ */
+export function botFactory(cardDefs: readonly CardDef[], random: () => number): (seat: { id: string; difficulty: "easy" | "normal" }) => EasyBot {
+  return () => createEasyBot(cardDefs, random);
+}
