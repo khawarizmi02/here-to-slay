@@ -1,10 +1,10 @@
-import { act, cleanup, screen, within } from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GameState } from "@here-to-slay/engine";
 import { cardName } from "../src/board/cards.js";
 import type { FakeConnection } from "./fake-connection.js";
 import { ALICE_HERO, BOT_HERO, CHALLENGE, MODIFIER, engine, newGame as game, play, step, update, type GameSetup } from "./real-game.js";
-import { ALICE, BOT, renderInLobby } from "./render.js";
+import { ALICE, BOT, renderInLobby, skipAnimations } from "./render.js";
 
 afterEach(cleanup);
 
@@ -185,7 +185,7 @@ describe("the game log", () => {
     expect(screen.getByText("Game log").closest("details")).not.toHaveAttribute("open");
 
     // What the log holds, not how it plays: the animation queue has its own tests.
-    act(() => screen.getByRole("checkbox", { name: "Skip animations" }).click());
+    skipAnimations();
     const played = step(newGame(), { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }, "s1", 2);
     connection.receive(played.msg);
     connection.receive(step(played.state, { type: "PASS", player: "s2" }, "s1", 3).msg);

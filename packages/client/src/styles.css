@@ -72,10 +72,20 @@ button {
   border-radius: 6px;
 }
 
-.skip-animations {
-  display: inline-flex;
-  gap: 4px;
+.settings fieldset {
+  margin: 8px 0;
+}
+
+.settings label {
+  display: flex;
+  gap: 6px;
   align-items: center;
+  margin: 6px 0;
+}
+
+.settings fieldset label {
+  display: inline-flex;
+  margin-right: 12px;
 }
 
 /* The event the animation queue is playing: a placeholder until real card animation. */
@@ -331,7 +341,7 @@ main.board {
 }
 
 /* The rules reference (§3): over whatever is on screen, which stays as it was underneath. */
-.rules-backdrop {
+.dialog-backdrop {
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -343,7 +353,7 @@ main.board {
   overflow: auto;
 }
 
-.rules-reference {
+.dialog {
   box-sizing: border-box;
   width: min(640px, 100%);
   padding: 16px;
@@ -353,14 +363,14 @@ main.board {
   box-shadow: 0 8px 32px rgb(0 0 0 / 0.4);
 }
 
-.rules-reference header {
+.dialog header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
 }
 
-.rules-reference h2,
+.dialog h2,
 .rules-reference h3 {
   margin: 0.6em 0 0.3em;
 }

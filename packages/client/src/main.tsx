@@ -4,6 +4,8 @@ import { browserLauncher } from "./root/launcher.js";
 import { roomRandom } from "./root/seed.js";
 import { App } from "./shell/App.js";
 import { storagePointerStore } from "./shell/pointer.js";
+import { deviceSettings } from "./shell/settings.js";
+import { webAudioPlayer } from "./shell/sound.js";
 import { realGame } from "./board/layer.js";
 import "./styles.css";
 
@@ -19,6 +21,6 @@ const random = roomRandom(location.search, { seedable: import.meta.env.MODE === 
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App launcher={browserLauncher(relayUrl(), random)} pointers={storagePointerStore(localStorage)} game={realGame} />
+    <App launcher={browserLauncher(relayUrl(), random)} pointers={storagePointerStore(localStorage)} game={realGame} settings={deviceSettings(localStorage)} sounds={webAudioPlayer()} />
   </StrictMode>,
 );

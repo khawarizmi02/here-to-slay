@@ -57,6 +57,8 @@ export interface DeviceSeat {
   confirmPassDevice(): void;
   /** Whether updates animate, as they do only for the Seat on screen. Turning it off shows the latest view at once. */
   setAnimated(animated: boolean): void;
+  /** How long each of its events plays before the next, in ms. */
+  setEventMs(ms: number): void;
   close(): void;
 }
 
@@ -146,6 +148,7 @@ export function connectSeat(
       withSeat((seat) => send({ t: "confirmPassDevice", seat }));
     },
     setAnimated: (animated) => playback.setAnimated(animated),
+    setEventMs: (ms) => playback.setEventMs(ms),
     close() {
       playback.stop();
       unsubscribe();

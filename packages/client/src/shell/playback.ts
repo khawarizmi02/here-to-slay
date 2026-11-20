@@ -1,7 +1,6 @@
 import type { GameEvent, PlayerViewPayload, RoomMsg } from "@here-to-slay/protocol";
+import { EVENT_MS } from "./settings.js";
 
-/** How long each event plays before the next, in ms. */
-export const EVENT_SLOT_MS = 300;
 /** More updates than this waiting to show, the one playing included, and the Seat jumps to the latest. */
 export const MAX_WAITING_UPDATES = 3;
 
@@ -22,6 +21,8 @@ export interface Playback {
   receive(update: Update): void;
   /** Whether updates animate. Turning it off shows the latest at once. */
   setAnimated(animated: boolean): void;
+  /** How long each event plays before the next, in ms, from the next event on. */
+  setEventMs(ms: number): void;
   stop(): void;
 }
 
@@ -33,6 +34,7 @@ export interface Playback {
  */
 export function createPlayback(show: (shown: Partial<Shown>) => void, current: () => { log: GameEvent[] }): Playback {
   let animated = false;
+  let eventMs = EVENT_MS.normal;
   let lastVersion: number | null = null;
   /** Updates received but not yet shown, oldest first: the first is the one playing. */
   const waiting: Update[] = [];
@@ -49,7 +51,7 @@ export function createPlayback(show: (shown: Partial<Shown>) => void, current: (
       if (event !== undefined) {
         played++;
         show({ log: [...current().log, event], playing: event });
-        timer = setTimeout(next, EVENT_SLOT_MS);
+        timer = setTimeout(next, eventMs);
         return;
       }
       waiting.shift();
@@ -85,6 +87,9 @@ export function createPlayback(show: (shown: Partial<Shown>) => void, current: (
     setAnimated(on) {
       animated = on;
       if (!on) jump();
+    },
+    setEventMs(ms) {
+      eventMs = ms;
     },
     stop,
   };

@@ -2,6 +2,7 @@ import type { Action, ConfigPatch, GameEvent, PlayerViewPayload, RoomCode, SeatI
 import type { GameConnection } from "@here-to-slay/room";
 import type { ComponentType } from "react";
 import type { RoomPointer } from "./pointer.js";
+import type { Sound } from "./sound.js";
 
 /**
  * What the shell hands the game layer for the Seat on screen. The game layer
@@ -69,6 +70,11 @@ export interface GameLayer {
    * the Room sends remote Seats no `respond`. Null when it isn't asked.
    */
   responseOptions(view: PlayerViewPayload): Action[] | null;
+  /**
+   * The sound `event` makes for the Seat whose view `view` is, or null for
+   * one that makes none. "respond" is the shell's own: no event makes it.
+   */
+  sound(event: GameEvent, view: PlayerViewPayload): Exclude<Sound, "respond"> | null;
 }
 
 /** One local Seat's connection to a Room, as the composition root hands it over. */

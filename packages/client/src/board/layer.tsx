@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type PlayerView, type RuleConfig } from "@here-to-slay/engine";
+import { DEFAULT_CONFIG, type GameEvent, type PlayerView, type RuleConfig } from "@here-to-slay/engine";
 import { useState } from "react";
 import type { GameLayer, RulesProps } from "../shell/game.js";
 import { Board } from "./Board.js";
@@ -27,6 +27,32 @@ export const realGame: GameLayer = {
     if (view.responseWindow === null || view.me === "spectator" || !view.responseWindow.awaiting.includes(view.me)) return null;
     const options = view.legalActions.filter((a) => RESPONSES.has(a.type));
     return options.length > 0 ? options : null;
+  },
+  sound(payload, viewPayload) {
+    const event = payload as unknown as GameEvent;
+    const view = viewPayload as unknown as PlayerView;
+    switch (event.type) {
+      case "DICE_ROLLED":
+        return "diceRoll";
+      // A Hero, Item or Magic card is played as its Challenge Window opens, or, under a rule that allows no Challenges, as it resolves.
+      case "CHALLENGE_WINDOW_OPENED":
+      case "MODIFIER_PLAYED":
+        return "cardPlayed";
+      case "HERO_PLAYED":
+      case "ITEM_PLAYED":
+      case "MAGIC_PLAYED":
+        return view.config.maxChallengesPerPlay === 0 ? "cardPlayed" : null;
+      case "CHALLENGE_PLAYED":
+        return "challenge";
+      case "MONSTER_SLAIN":
+        return "monsterSlain";
+      case "TURN_STARTED":
+        return event.player === view.me ? "yourTurn" : null;
+      case "GAME_WON":
+        return "gameOver";
+      default:
+        return null;
+    }
   },
 };
 
