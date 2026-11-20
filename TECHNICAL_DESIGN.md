@@ -1031,7 +1031,7 @@ Responses:
 
 Decisions: target the player closest to winning. When a Decision gives up its own card, give up the least useful one (a hero of a class it already has; a hero whose class it keeps without it). Decline a "you may" that would make it discard or sacrifice.
 
-"Close to winning" is one class or one monster away; "closest to winning" is the larger of classes owned out of `classesToWin` and monsters slain out of `monstersToWin`. The bot uses the default rules, not the game's `config` in its view. With no single leading opponent, it drops nobody's roll.
+"Close to winning" is one class or one monster away; "closest to winning" is the larger of classes owned out of `classesToWin` and monsters slain out of `monstersToWin`. It reads the game's rules from its view's `config`. With no single leading opponent, it drops nobody's roll.
 
 ### 11.2 Normal bot (later)
 - Heuristic scoring: give each state a score based on classes owned, monsters slain, hand size, and the opponents' progress. Simulate each legal action one step ahead and pick the best.
