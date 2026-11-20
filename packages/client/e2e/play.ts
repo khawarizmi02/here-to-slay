@@ -9,12 +9,15 @@ export const waitingForHost = (page: Page) => page.getByRole("status").filter({ 
 export const hand = (page: Page) => page.getByRole("region", { name: "Your hand" });
 
 /**
- * Ticks "Skip animations": the online runs play whole games, and leave the
- * animation queue to the client tests. The toggle isn't kept, so a page
- * ticks it again after each load.
+ * Ticks "Skip animations" in the settings panel: the online runs play whole
+ * games, and leave the animation queue to the client tests. The setting is
+ * kept per device, so ticking it again after a load changes nothing.
  */
 export async function skipAnimations(page: Page): Promise<void> {
-  await page.getByRole("checkbox", { name: "Skip animations" }).check();
+  await page.getByRole("button", { name: "Settings" }).click();
+  const panel = page.getByRole("dialog", { name: "Settings" });
+  await panel.getByRole("checkbox", { name: "Skip animations" }).check();
+  await panel.getByRole("button", { name: "Close" }).click();
 }
 
 /** The screen's text, without the countdown, which changes by itself. */

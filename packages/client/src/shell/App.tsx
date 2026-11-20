@@ -4,6 +4,8 @@ import { RoomClosedError, type GameLayer, type LaunchedRoom, type Launcher } fro
 import { Home } from "./Home.js";
 import type { PointerStore, RoomPointer } from "./pointer.js";
 import { SeatScreen } from "./SeatScreen.js";
+import type { DeviceSettings } from "./settings.js";
+import type { SoundPlayer } from "./sound.js";
 
 type Screen =
   | { kind: "home"; message?: string }
@@ -19,7 +21,19 @@ const ROOM_CLOSED = "That Room has closed.";
  * lands, pointing nowhere, when its Room closes. An online Room it can't
  * reach stays pointed at, until a new Room replaces it.
  */
-export function App({ launcher, pointers, game }: { launcher: Launcher; pointers: PointerStore; game: GameLayer }) {
+export function App({
+  launcher,
+  pointers,
+  game,
+  settings,
+  sounds,
+}: {
+  launcher: Launcher;
+  pointers: PointerStore;
+  game: GameLayer;
+  settings: DeviceSettings;
+  sounds: SoundPlayer;
+}) {
   const [screen, setScreen] = useState<Screen>(() => {
     const pointer = pointers.load();
     return pointer ? { kind: "resuming", pointer } : { kind: "home" };
@@ -38,7 +52,7 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
       }),
     [device, pointers],
   );
-  const enter = (room: LaunchedRoom) => setScreen({ kind: "device", device: connectDevice(room, game) });
+  const enter = (room: LaunchedRoom) => setScreen({ kind: "device", device: connectDevice(room, game, settings, sounds) });
 
   // Resuming builds a Room, so it must happen once: StrictMode runs effects twice, but keeps refs.
   const resumeStarted = useRef(false);
@@ -91,6 +105,7 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
         <Home
           message={screen.message}
           RulesReference={game.RulesReference}
+          settings={settings}
           onPlayOnThisDevice={playOnThisDevice}
           onHostOnline={(name) => goOnline("host", name, launcher.hostOnline(name))}
           onJoin={(roomCode, name) => goOnline("friend", name, launcher.join(roomCode, name))}
@@ -101,6 +116,6 @@ export function App({ launcher, pointers, game }: { launcher: Launcher; pointers
     case "connecting":
       return <p>Connecting to the relay…</p>;
     case "device":
-      return <SeatScreen device={screen.device} game={game} onLeave={leave} onGameOver={pointers.clear} />;
+      return <SeatScreen device={screen.device} game={game} settings={settings} onLeave={leave} onGameOver={pointers.clear} />;
   }
 }

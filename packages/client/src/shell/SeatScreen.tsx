@@ -3,6 +3,8 @@ import { Countdown } from "./Countdown.js";
 import type { Device } from "./device.js";
 import type { GameLayer } from "./game.js";
 import { Lobby } from "./Lobby.js";
+import type { DeviceSettings } from "./settings.js";
+import { SettingsButton } from "./SettingsPanel.js";
 
 /**
  * Whatever the Seat on screen should see: the lobby until the game starts,
@@ -12,15 +14,17 @@ import { Lobby } from "./Lobby.js";
 export function SeatScreen({
   device,
   game,
+  settings,
   onLeave,
   onGameOver,
 }: {
   device: Device;
   game: GameLayer;
+  settings: DeviceSettings;
   onLeave: () => void;
   onGameOver: () => void;
 }) {
-  const { onScreen: seat, passTo, skipAnimations } = useStore(device.store);
+  const { onScreen: seat, passTo } = useStore(device.store);
   const { lobby, view, log, playing, responseOptions, deadline, error, hostAway } = useStore(seat.store);
   return (
     <>
@@ -29,10 +33,7 @@ export function SeatScreen({
           Leave Room
         </button>
         {device.hosting && <p className="hosting-notice">Keep this tab open: you are hosting</p>}
-        <label className="skip-animations">
-          <input type="checkbox" checked={skipAnimations} onChange={(e) => device.setSkipAnimations(e.target.checked)} />
-          Skip animations
-        </label>
+        <SettingsButton settings={settings} />
       </header>
       {hostAway && (
         <p role="status" className="host-away">

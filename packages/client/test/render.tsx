@@ -1,10 +1,12 @@
 import type { LobbySeat } from "@here-to-slay/protocol";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect } from "vitest";
 import { App } from "../src/shell/App.js";
 import type { LaunchedRoom, LaunchedSeat, Launcher } from "../src/shell/game.js";
 import { memoryPointerStore, type RoomPointer } from "../src/shell/pointer.js";
+import { deviceSettings } from "../src/shell/settings.js";
+import type { Sound, SoundPlayer } from "../src/shell/sound.js";
 import { realGame } from "../src/board/layer.js";
 import { FakeConnection } from "./fake-connection.js";
 
@@ -34,7 +36,15 @@ export function renderClient({
   resume,
   hostOnline,
   join,
-}: { pointer?: RoomPointer | null; resume?: Launcher["resume"]; hostOnline?: Launcher["hostOnline"]; join?: Launcher["join"] } = {}) {
+  storage = memoryStorage(),
+}: {
+  pointer?: RoomPointer | null;
+  resume?: Launcher["resume"];
+  hostOnline?: Launcher["hostOnline"];
+  join?: Launcher["join"];
+  /** Where the device's settings are saved. */
+  storage?: Storage;
+} = {}) {
   const connection = new FakeConnection();
   let room = fakeRoom([{ connection, name: "Alice", host: true }]);
   const launched: string[] = [];
@@ -65,7 +75,8 @@ export function renderClient({
   };
   const pointers = memoryPointerStore(pointer);
   const user = userEvent.setup();
-  render(<App launcher={launcher} pointers={pointers} game={realGame} />);
+  const sounds = new FakeSoundPlayer();
+  render(<App launcher={launcher} pointers={pointers} game={realGame} settings={deviceSettings(storage)} sounds={sounds} />);
   return {
     connection,
     launched,
@@ -74,6 +85,7 @@ export function renderClient({
     resumed,
     pointers,
     user,
+    sounds,
     /** Connects another local Seat, as the composition root does when a lobby names one. */
     addSeat(seat: LaunchedSeat) {
       room.addSeat(seat);
@@ -85,8 +97,8 @@ export const ALICE: LobbySeat = { id: "s1", name: "Alice", kind: "local", connec
 export const BOT: LobbySeat = { id: "s2", name: "Bot 1", kind: "bot", connected: true };
 
 /** The client in the lobby of a Room on this device, as Seat `you`, with `seats` so far. */
-export async function renderInLobby(seats: LobbySeat[] = [ALICE], you = "s1") {
-  const client = renderClient();
+export async function renderInLobby(seats: LobbySeat[] = [ALICE], you = "s1", options: Parameters<typeof renderClient>[0] = {}) {
+  const client = renderClient(options);
   await client.user.click(screen.getByRole("button", { name: "Play on this device" }));
   client.connection.receive({ t: "lobby", roomCode: "ABCDE", seats, you: [you] });
   return client;
@@ -100,4 +112,41 @@ export async function renderInLobby(seats: LobbySeat[] = [ALICE], you = "s1") {
  */
 export async function connected() {
   await waitFor(() => expect(screen.queryByText("Connecting…")).toBeNull());
+}
+
+/** A sound player that records what it is asked to play. */
+export class FakeSoundPlayer implements SoundPlayer {
+  readonly played: { sound: Sound; volume: number }[] = [];
+
+  play(sound: Sound, volume: number): void {
+    this.played.push({ sound, volume });
+  }
+
+  /** The sounds played since the last call. */
+  take(): Sound[] {
+    return this.played.splice(0).map((p) => p.sound);
+  }
+}
+
+/** A Storage held in memory, starting with `items`. */
+export function memoryStorage(items: Record<string, string> = {}): Storage {
+  const map = new Map(Object.entries(items));
+  return {
+    get length() {
+      return map.size;
+    },
+    key: (i) => [...map.keys()][i] ?? null,
+    getItem: (k) => map.get(k) ?? null,
+    setItem: (k, v) => void map.set(k, String(v)),
+    removeItem: (k) => void map.delete(k),
+    clear: () => map.clear(),
+  };
+}
+
+/** Ticks "Skip animations" in the settings panel, opened from the room bar, and closes it. */
+export function skipAnimations() {
+  act(() => screen.getByRole("button", { name: "Settings" }).click());
+  const panel = screen.getByRole("dialog", { name: "Settings" });
+  act(() => within(panel).getByRole("checkbox", { name: "Skip animations" }).click());
+  act(() => within(panel).getByRole("button", { name: "Close" }).click());
 }

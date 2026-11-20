@@ -1,19 +1,23 @@
 import { useState, type ComponentType, type FormEvent } from "react";
+import type { DeviceSettings } from "./settings.js";
+import { SettingsButton } from "./SettingsPanel.js";
 
 /**
  * The first screen (TECHNICAL_DESIGN.md §12.3): play here, host a Room
  * friends join through the relay, or join one with its Room Code. The
- * game layer's rules reference opens over it.
+ * game layer's rules reference and the settings panel open over it.
  */
 export function Home({
   message,
   RulesReference,
+  settings,
   onPlayOnThisDevice,
   onHostOnline,
   onJoin,
 }: {
   message?: string | undefined;
   RulesReference: ComponentType<{ onClose(): void }>;
+  settings: DeviceSettings;
   onPlayOnThisDevice: (name: string) => void;
   onHostOnline: (name: string) => void;
   /** `roomCode` as the player typed it: the launcher forgives case and stray spaces. */
@@ -67,6 +71,7 @@ export function Home({
         Rules
       </button>
       {rulesOpen && <RulesReference onClose={() => setRulesOpen(false)} />}
+      <SettingsButton settings={settings} />
     </main>
   );
 }

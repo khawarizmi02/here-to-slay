@@ -1084,6 +1084,7 @@ Decisions: target the player closest to winning. When a Decision gives up its ow
 <App>
  ├ <Home/>                   Play on this device / Host online / Join with a Room Code
  ├ <RulesReference/>         §3 in plain words, over Home or the board; in a game, its rule flags
+ ├ <SettingsPanel/>          over Home or the board: animation speed, skip animations, sound and volume, kept per device
  ├ <Lobby/>                  Seats, add local/bot Seats, rules config
  └ <GameScreen>
     ├ <OpponentArea/> ×N

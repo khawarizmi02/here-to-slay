@@ -2,7 +2,7 @@ import { act, cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FakeConnection } from "./fake-connection.js";
 import { ALICE_HERO, BOT_HERO, CHALLENGE, MODIFIER, newGame as game, step, viewOf } from "./real-game.js";
-import { ALICE, BOT, renderInLobby } from "./render.js";
+import { ALICE, BOT, renderInLobby, skipAnimations } from "./render.js";
 
 afterEach(() => {
   cleanup();
@@ -130,7 +130,7 @@ describe("the animation queue", () => {
     const connection = await inGame();
     const played = step(newGame(), playHero, "s1", 2);
     connection.receive(played.msg);
-    act(() => screen.getByRole("checkbox", { name: "Skip animations" }).click());
+    skipAnimations();
     expect(holdsHero()).toBe(false);
     expect(screen.queryByRole("region", { name: "Now playing" })).toBeNull();
 

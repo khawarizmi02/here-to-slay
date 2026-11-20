@@ -2,6 +2,8 @@ import type { RoomCode, SeatId } from "@here-to-slay/protocol";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { GameLayer, LaunchedRoom, LaunchedSeat } from "./game.js";
 import { connectSeat, type DeviceSeat } from "./seat.js";
+import { EVENT_MS, type DeviceSettings } from "./settings.js";
+import { playDeviceSounds, type SoundPlayer } from "./sound.js";
 
 /** Which of this device's Seats is on screen, and whether the screen is hidden while the device changes hands. */
 export interface DeviceState {
@@ -13,8 +15,6 @@ export interface DeviceState {
   passTo: DeviceSeat | null;
   /** Whether the Room has closed, such as when its Host was away too long. */
   roomClosed: boolean;
-  /** Whether the player asked for views to show at once, with no animation. */
-  skipAnimations: boolean;
 }
 
 /** Every local Seat on this device, one connection each, shown one at a time. */
@@ -26,8 +26,6 @@ export interface Device {
   readonly hosting: boolean;
   /** The player the Pass-Device Step names has the device. */
   confirmPass(): void;
-  /** The player's "Skip animations" toggle: on, every view shows as soon as it arrives. */
-  setSkipAnimations(skip: boolean): void;
   close(): void;
 }
 
@@ -37,12 +35,19 @@ export interface Device {
  * for turns and decisions the device works it out, from `seatToAct`: when
  * the game starts waiting on one of its Seats, that Seat's player is asked
  * for. With one local Seat there is nobody to pass to, so the step never shows.
- * Only the Seat on screen animates its updates: the others keep their latest view.
+ * Only the Seat on screen animates its updates, at the speed `settings` say,
+ * and only it makes sounds: the others keep their latest view.
  */
-export function connectDevice(room: LaunchedRoom, { seatToAct, viewer }: Pick<GameLayer, "seatToAct" | "viewer">): Device {
+export function connectDevice(
+  room: LaunchedRoom,
+  game: Pick<GameLayer, "seatToAct" | "viewer" | "sound" | "responseOptions">,
+  settings: DeviceSettings,
+  sounds: SoundPlayer,
+): Device {
+  const { seatToAct, viewer } = game;
   const connect = (launched: LaunchedSeat) => connectSeat(launched, viewer);
   const first = connect(room.seats[0]!);
-  const store = createStore<DeviceState>()(() => ({ seats: [first, ...room.seats.slice(1).map(connect)], onScreen: first, passTo: null, roomClosed: false, skipAnimations: false }));
+  const store = createStore<DeviceState>()(() => ({ seats: [first, ...room.seats.slice(1).map(connect)], onScreen: first, passTo: null, roomClosed: false }));
   /** The Seat the game last waited on, from the latest update. */
   let toAct: SeatId | null = null;
   /** Whether the Room asked for the step on show: confirming it then tells the Room. */
@@ -74,8 +79,13 @@ export function connectDevice(room: LaunchedRoom, { seatToAct, viewer }: Pick<Ga
   }
 
   /** Lets the Seat on screen animate, unless the player skips animations, and shows every other Seat's latest view. */
-  function animateOnScreen({ seats, onScreen, skipAnimations }: DeviceState): void {
-    for (const seat of seats) seat.setAnimated(seat === onScreen && !skipAnimations);
+  function animateOnScreen(): void {
+    const { seats, onScreen } = store.getState();
+    const { skipAnimations, animationSpeed } = settings.store.getState();
+    for (const seat of seats) {
+      seat.setEventMs(EVENT_MS[animationSpeed]);
+      seat.setAnimated(seat === onScreen && !skipAnimations);
+    }
   }
 
   // Every Seat is in the list before any listens, so a message waiting on the first knows how many there are.
@@ -85,8 +95,10 @@ export function connectDevice(room: LaunchedRoom, { seatToAct, viewer }: Pick<Ga
     store.setState((s) => ({ seats: [...s.seats, seat] }));
     listen(seat);
   });
-  animateOnScreen(store.getState());
+  animateOnScreen();
   const stopAnimating = store.subscribe(animateOnScreen);
+  const stopSettings = settings.store.subscribe(animateOnScreen);
+  const stopSounds = playDeviceSounds(store, game, settings.store.getState, sounds);
 
   return {
     store,
@@ -99,10 +111,9 @@ export function connectDevice(room: LaunchedRoom, { seatToAct, viewer }: Pick<Ga
       askedByRoom = false;
       store.setState({ onScreen: seat, passTo: null });
     },
-    setSkipAnimations(skip) {
-      store.setState({ skipAnimations: skip });
-    },
     close() {
+      stopSounds();
+      stopSettings();
       stopAnimating();
       stopAdding();
       for (const seat of store.getState().seats) seat.close();
@@ -110,3 +121,4 @@ export function connectDevice(room: LaunchedRoom, { seatToAct, viewer }: Pick<Ga
     },
   };
 }
+
