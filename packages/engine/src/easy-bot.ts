@@ -1,6 +1,5 @@
 import type { CardDef, Effect, HeroClass, PassiveAbility, RollKind } from "@here-to-slay/cards";
 import type { Action, PlayerViewPayload } from "@here-to-slay/protocol";
-import { DEFAULT_CONFIG } from "./config.js";
 import { ACCEPT, DECLINE, type CardDefId, type PlayerView, type WindowRoll } from "./types.js";
 
 /** Matches the Room's `Bot` by shape, without importing the Room (ADR-0002). */
@@ -104,11 +103,10 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
 
   /**
    * How close a player is to winning: the larger of classes owned out of
-   * `classesToWin` and monsters slain out of `monstersToWin`. The view holds
-   * no rule config, so this uses the defaults.
+   * `classesToWin` and monsters slain out of `monstersToWin`, by the game's rules.
    */
-  const winScore = (p: PlayerInView): number =>
-    Math.max(partyClasses(p).size / DEFAULT_CONFIG.classesToWin, p.slainMonsters.length / DEFAULT_CONFIG.monstersToWin);
+  const winScore = (view: PlayerView, p: PlayerInView): number =>
+    Math.max(partyClasses(p).size / view.config.classesToWin, p.slainMonsters.length / view.config.monstersToWin);
 
   /** The chance `me` rolls `h`'s effect. */
   const heroChance = (me: PlayerInView, h: HeroInView): number => {
@@ -157,7 +155,7 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
       bestBy(legal, (a) => {
         if (a.type !== "PLAY_ITEM" || handDef(view, a.card)?.type !== "cursedItem") return undefined;
         const leading = view.players.find((p) => p.id !== me.id && p.party.some((h) => h.hero.id === a.targetHero));
-        return leading === undefined ? undefined : winScore(leading);
+        return leading === undefined ? undefined : winScore(view, leading);
       }),
     // 5. Play Magic.
     () => legal.find((a) => a.type === "PLAY_MAGIC"),
@@ -167,9 +165,9 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
     () => legal.find((a) => a.type === "END_TURN"),
   ];
 
-  /** One class or one monster away from winning. */
-  const nearWin = (p: PlayerInView): boolean =>
-    partyClasses(p).size >= DEFAULT_CONFIG.classesToWin - 1 || p.slainMonsters.length >= DEFAULT_CONFIG.monstersToWin - 1;
+  /** One class or one monster away from winning, by the game's rules. */
+  const nearWin = (view: PlayerView, p: PlayerInView): boolean =>
+    partyClasses(p).size >= view.config.classesToWin - 1 || p.slainMonsters.length >= view.config.monstersToWin - 1;
 
   /** In a Challenge Window: Challenge a player close to winning, or at random 20% of the time; otherwise pass (§11.1). */
   const challengeResponse = (view: PlayerView, legal: Action[]): Action | undefined => {
@@ -179,14 +177,14 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
     const pass = legal.find((a) => a.type === "PASS");
     if (challenge === undefined) return pass;
     const player = view.players.find((p) => p.id === window.player);
-    return (player !== undefined && nearWin(player)) || random() < CHALLENGE_CHANCE ? challenge : pass;
+    return (player !== undefined && nearWin(view, player)) || random() < CHALLENGE_CHANCE ? challenge : pass;
   };
 
   /** The opponent closer to winning than every other opponent; none while two or more tie for it. */
   const leadingOpponent = (view: PlayerView, me: PlayerInView): PlayerInView | undefined => {
     const opponents = view.players.filter((p) => p.id !== me.id);
-    const best = Math.max(...opponents.map(winScore));
-    const leaders = opponents.filter((p) => winScore(p) === best);
+    const best = Math.max(...opponents.map((p) => winScore(view, p)));
+    const leaders = opponents.filter((p) => winScore(view, p) === best);
     return leaders.length === 1 ? leaders[0] : undefined;
   };
 
@@ -209,7 +207,7 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
       const challenger = rolls.find((r) => r.rollKind === "challenge" && r.side === "challenger");
       const defender = rolls.find((r) => r.rollKind === "challenge" && r.side === "defender");
       if (challenger === undefined || defender === undefined) return undefined;
-      const succeeds = DEFAULT_CONFIG.challengeTieWinner === "challenger" ? challenger.total >= defender.total : challenger.total > defender.total;
+      const succeeds = view.config.challengeTieWinner === "challenger" ? challenger.total >= defender.total : challenger.total > defender.total;
       return goes(challenger.player, succeeds) ?? goes(defender.player, !succeeds);
     };
     const pass = legal.find((a) => a.type === "PASS");
@@ -262,13 +260,13 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
       switch (d.kind) {
         case "choosePlayer": {
           const p = view.players.find((q) => q.id === id);
-          return p === undefined ? undefined : p.id === me.id ? -1 : winScore(p);
+          return p === undefined ? undefined : p.id === me.id ? -1 : winScore(view, p);
         }
         case "chooseHero": {
           const p = owner(id);
           const h = p?.party.find((x) => x.hero.id === id);
           if (p === undefined || h === undefined) return undefined;
-          if (p.id !== me.id) return winScore(p);
+          if (p.id !== me.id) return winScore(view, p);
           return d.discard ? -heroValue(me, h) : heroChance(me, h);
         }
         case "chooseCardFromHand":

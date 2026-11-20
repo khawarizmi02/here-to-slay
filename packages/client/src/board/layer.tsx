@@ -2,6 +2,7 @@ import { DEFAULT_CONFIG, type PlayerView, type RuleConfig } from "@here-to-slay/
 import { useState } from "react";
 import type { GameLayer, RulesProps } from "../shell/game.js";
 import { Board } from "./Board.js";
+import { RulesReference } from "./rules.js";
 
 const RESPONSES = new Set(["PASS", "PLAY_CHALLENGE", "PLAY_MODIFIER"]);
 
@@ -9,6 +10,7 @@ const RESPONSES = new Set(["PASS", "PLAY_CHALLENGE", "PLAY_MODIFIER"]);
 export const realGame: GameLayer = {
   Board,
   Rules,
+  RulesReference,
   seatToAct(payload) {
     const view = payload as unknown as PlayerView;
     if (view.winner !== null || view.responseWindow !== null) return null;

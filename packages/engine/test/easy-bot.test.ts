@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Action } from "@here-to-slay/protocol";
+import type { Action, ConfigPatch } from "@here-to-slay/protocol";
 import { placeholderCardDefs } from "@here-to-slay/cards";
 import { botFactory, createEasyBot, createRng, createRoomEngine, nextFloat, type GameState } from "../src/index.js";
 import { players } from "./cards.js";
@@ -47,9 +47,9 @@ const EXTRA = [
 const engine = () => engineWith({}, 0, EXTRA);
 const defs = defsWith({}, 0, EXTRA);
 
-/** p1's turn as a fighter leader, with an empty hand and no monsters face up. */
-function game(e: Engine): GameState {
-  const state = leader(start(e, { freeRollOnHeroPlay: false }), "p1", "fighter");
+/** p1's turn as a fighter leader, with an empty hand and no monsters face up, under the default rules or `config`. */
+function game(e: Engine, config: ConfigPatch = {}): GameState {
+  const state = leader(start(e, { freeRollOnHeroPlay: false, ...config }), "p1", "fighter");
   const p1 = state.players.find((p) => p.id === "p1")!;
   state.discardPile.push(...p1.hand);
   p1.hand = [];
@@ -204,6 +204,14 @@ describe("easy bot, a Challenge Window", () => {
     expect(choose(e, state, "p2", () => 0.99)).toEqual({ type: "PLAY_CHALLENGE", player: "p2", card: "challenge#0" });
   });
 
+  it("counts how close a player is to winning by the game's own rules", () => {
+    const e = engine();
+    // One monster slain is far from 3, but one away from 2.
+    const oneSlain = (config: ConfigPatch) => challengeWindow(e, slay(game(e, config), "p1", "monster_eight#0"));
+    expect(choose(e, oneSlain({}), "p2", () => 0.99)).toEqual({ type: "PASS", player: "p2" });
+    expect(choose(e, oneSlain({ monstersToWin: 2 }), "p2", () => 0.99)).toEqual({ type: "PLAY_CHALLENGE", player: "p2", card: "challenge#0" });
+  });
+
   it("passes on a player far from winning, except 20% of the time", () => {
     const e = engine();
     const state = challengeWindow(e, inParty(game(e), "p1", "hero_thief#0"));
@@ -251,6 +259,20 @@ describe("easy bot, a Modifier Window", () => {
     expect(window).toMatchObject({ kind: "modifier", rolls: [{ player: "p2", total: 6 }, { player: "p1", total: 7 }] });
     const mine = window?.kind === "modifier" ? window.rolls[0]!.roll : "";
     expect(choose(e, duel, "p2")).toEqual({ type: "PLAY_MODIFIER", player: "p2", card: "mod#0", value: 2, roll: mine });
+  });
+
+  it("settles a tied Challenge by the game's own rules: 5 + 2 ties the defender's 7", () => {
+    const tiedDuel = (tieWinner: "challenger" | "challenged") => {
+      const e = engine();
+      const state = challengeWindow(e, game(e, { challengeTieWinner: tieWinner }));
+      give(state, "p2", "mod#0");
+      // The challenger rolls 2 + 3, then the defender 4 + 3.
+      return { e, duel: act(e, dice(state, 2, 3, 4, 3), { type: "PLAY_CHALLENGE", player: "p2", card: "challenge#0" }).state };
+    };
+    const won = tiedDuel("challenger");
+    expect(choose(won.e, won.duel, "p2")).toMatchObject({ type: "PLAY_MODIFIER", player: "p2", card: "mod#0", value: 2 });
+    const lost = tiedDuel("challenged");
+    expect(choose(lost.e, lost.duel, "p2")).toEqual({ type: "PASS", player: "p2" });
   });
 
   it("lifts its own monster attack to the monster's slay value: 6 + 2 makes 8", () => {

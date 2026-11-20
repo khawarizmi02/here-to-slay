@@ -5,6 +5,7 @@ import { Countdown } from "../shell/Countdown.js";
 import type { GameProps } from "../shell/game.js";
 import { cardDef, cardName, cardSubtitle } from "./cards.js";
 import { logLine, nameIn } from "./log.js";
+import { RulesReference } from "./rules.js";
 import { ZoomProvider, useZoomable } from "./zoom.js";
 
 type Player = PlayerView["players"][number];
@@ -47,6 +48,7 @@ export function Board({ view: payload, log, playing, responseOptions, deadline, 
   // Only the action bar says so: on every card it would be noise.
   const notYourTurn = !playing && turnIdle && !myTurn && view.me !== "spectator";
 
+  const [rulesOpen, setRulesOpen] = useState(false);
   const winner = view.winner;
   useEffect(() => {
     if (winner !== null) onGameOver();
@@ -60,9 +62,16 @@ export function Board({ view: payload, log, playing, responseOptions, deadline, 
   return (
     <ZoomProvider>
       <main className="board">
-        <p className="turn-line">
-          Turn {view.turnNumber}: {myTurn ? "your turn" : `${nameIn(view, view.activePlayer)}'s turn`}
-        </p>
+        <div className="turn-line">
+          <p>
+            Turn {view.turnNumber}: {myTurn ? "your turn" : `${nameIn(view, view.activePlayer)}'s turn`}
+          </p>
+          <button type="button" onClick={() => setRulesOpen(true)}>
+            Rules
+          </button>
+        </div>
+        {/* Over the board, which stays as it is: its timers keep running and nothing is sent. */}
+        {rulesOpen && <RulesReference config={view.config} onClose={() => setRulesOpen(false)} />}
 
         <section aria-label="Opponents" className="opponents">
           {opponents.map((p) => (

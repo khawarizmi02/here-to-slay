@@ -99,6 +99,13 @@ main.board {
 }
 
 .turn-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.turn-line p {
   margin: 0;
   font-weight: bold;
 }
@@ -321,4 +328,53 @@ main.board {
   .card {
     width: 110px;
   }
+}
+
+/* The rules reference (§3): over whatever is on screen, which stays as it was underneath. */
+.rules-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.5);
+  overflow: auto;
+}
+
+.rules-reference {
+  box-sizing: border-box;
+  width: min(640px, 100%);
+  padding: 16px;
+  border-radius: 8px;
+  background: Canvas;
+  color: CanvasText;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.4);
+}
+
+.rules-reference header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.rules-reference h2,
+.rules-reference h3 {
+  margin: 0.6em 0 0.3em;
+}
+
+.rules-reference th {
+  text-align: left;
+  font-weight: normal;
+  padding-right: 12px;
+}
+
+.rules-reference dt {
+  font-weight: bold;
+}
+
+.rules-reference dd {
+  margin: 0 0 6px;
 }

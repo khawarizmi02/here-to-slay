@@ -393,6 +393,8 @@ export interface ApplyResult {
  */
 export type PlayerView = {
   me: PlayerId | "spectator";
+  /** The game's rule flags (§3.9), which every player may know. */
+  config: RuleConfig;
   phase: Phase;
   turnNumber: number;
   activePlayer: PlayerId;
