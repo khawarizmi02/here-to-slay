@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { browserLauncher } from "./root/launcher.js";
 import { roomRandom } from "./root/seed.js";
 import { App } from "./shell/App.js";
+import { downloadFile } from "./shell/download.js";
 import { storagePointerStore } from "./shell/pointer.js";
 import { deviceSettings } from "./shell/settings.js";
 import { webAudioPlayer } from "./shell/sound.js";
@@ -21,6 +22,6 @@ const random = roomRandom(location.search, { seedable: import.meta.env.MODE === 
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App launcher={browserLauncher(relayUrl(), random)} pointers={storagePointerStore(localStorage)} game={realGame} settings={deviceSettings(localStorage)} sounds={webAudioPlayer()} />
+    <App launcher={browserLauncher(relayUrl(), random)} pointers={storagePointerStore(localStorage)} game={realGame} settings={deviceSettings(localStorage)} sounds={webAudioPlayer()} saveFile={downloadFile} />
   </StrictMode>,
 );

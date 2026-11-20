@@ -1,7 +1,8 @@
+import { useCallback, useState } from "react";
 import { useStore } from "zustand";
 import { Countdown } from "./Countdown.js";
 import type { Device } from "./device.js";
-import type { GameLayer } from "./game.js";
+import type { GameLayer, ReplayFile } from "./game.js";
 import { Lobby } from "./Lobby.js";
 import type { DeviceSettings } from "./settings.js";
 import { SettingsButton } from "./SettingsPanel.js";
@@ -10,6 +11,7 @@ import { SettingsButton } from "./SettingsPanel.js";
  * Whatever the Seat on screen should see: the lobby until the game starts,
  * then the game layer. The Pass-Device Step hides it all while the device
  * changes hands, and "Waiting for Host…" shows over it while the Host is away.
+ * At game over, the Host can download the game's replay.
  */
 export function SeatScreen({
   device,
@@ -17,14 +19,22 @@ export function SeatScreen({
   settings,
   onLeave,
   onGameOver,
+  saveFile,
 }: {
   device: Device;
   game: GameLayer;
   settings: DeviceSettings;
   onLeave: () => void;
   onGameOver: () => void;
+  saveFile: (file: ReplayFile) => void;
 }) {
   const { onScreen: seat, passTo } = useStore(device.store);
+  const [gameIsOver, setGameIsOver] = useState(false);
+  const markGameOver = useCallback(() => {
+    setGameIsOver(true);
+    onGameOver();
+  }, [onGameOver]);
+  const replayFile = gameIsOver ? device.replayFile : null;
   const { lobby, view, log, playing, responseOptions, deadline, error, hostAway } = useStore(seat.store);
   return (
     <>
@@ -33,6 +43,17 @@ export function SeatScreen({
           Leave Room
         </button>
         {device.hosting && <p className="hosting-notice">Keep this tab open: you are hosting</p>}
+        {replayFile && (
+          <button
+            type="button"
+            onClick={() => {
+              const file = replayFile();
+              if (file) saveFile(file);
+            }}
+          >
+            Download replay
+          </button>
+        )}
         <SettingsButton settings={settings} />
       </header>
       {hostAway && (
@@ -63,7 +84,7 @@ export function SeatScreen({
               responseOptions={playing ? null : seat.remote ? game.responseOptions(view) : responseOptions}
               deadline={playing ? null : deadline}
               act={seat.act}
-              onGameOver={onGameOver}
+              onGameOver={markGameOver}
             />
           ) : lobby ? (
             <Lobby

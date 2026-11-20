@@ -14,6 +14,7 @@ export function Home({
   onPlayOnThisDevice,
   onHostOnline,
   onJoin,
+  onWatchReplay,
 }: {
   message?: string | undefined;
   RulesReference: ComponentType<{ onClose(): void }>;
@@ -22,6 +23,8 @@ export function Home({
   onHostOnline: (name: string) => void;
   /** `roomCode` as the player typed it: the launcher forgives case and stray spaces. */
   onJoin: (roomCode: string, name: string) => void;
+  /** The contents of the replay file the player picked. */
+  onWatchReplay: (contents: string) => void;
 }) {
   const [name, setName] = useState("Player 1");
   const [roomCode, setRoomCode] = useState("");
@@ -67,6 +70,19 @@ export function Home({
           Join with a Room Code
         </button>
       </form>
+      <label className="file-picker">
+        Watch a replay
+        <input
+          type="file"
+          accept=".json,application/json"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // Cleared, so picking the same file again opens it again.
+            e.target.value = "";
+            if (file) void file.text().then(onWatchReplay);
+          }}
+        />
+      </label>
       <button type="button" onClick={() => setRulesOpen(true)}>
         Rules
       </button>

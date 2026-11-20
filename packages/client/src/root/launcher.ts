@@ -2,12 +2,15 @@ import type { RoomCode, RoomMsg, SeatId, SeatToken } from "@here-to-slay/protoco
 import {
   IndexedDbActionLogStore,
   JoinError,
+  openReplay,
   RelayConnection,
+  ReplayError,
   Room,
   type GameConnection,
   type IdbFactoryLike,
   type RecordSeat,
   type RelaySocket,
+  type Replay,
   type RoomEngine,
 } from "@here-to-slay/room";
 import { botFactory, createRoomEngine, type GameState } from "@here-to-slay/engine";
@@ -19,6 +22,22 @@ import { browserDialer, createRelayRoom, hostSocket, rejoiningDialer, type Relay
 
 /** The rules engine, with the card set the board shows. */
 const engine: RoomEngine<GameState> = createRoomEngine(CARD_DEFS);
+
+/** The engine as a replay shows it: the board offers no actions, since nobody can take one. */
+const replayEngine: RoomEngine<GameState> = {
+  ...engine,
+  getPlayerView: (state, player) => ({ ...engine.getPlayerView(state, player), legalActions: [] }),
+};
+
+/** Plays back the contents of a replay file on this device. Throws with a message for the player. */
+export function watchReplay(contents: string): Replay {
+  try {
+    return openReplay(replayEngine, contents);
+  } catch (e) {
+    if (e instanceof ReplayError) throw e;
+    throw new Error("That replay couldn't be played back.", { cause: e });
+  }
+}
 
 /**
  * The composition root: the only code that touches the Room. It builds Rooms
@@ -81,6 +100,8 @@ export function browserLauncher(relayUrl: string, random: () => number): Launche
       const socket = await hostSocket(relayUrl, pointer.roomCode, pointer.token!);
       return hostedOnline(room, pointer.token!, socket, host, restored);
     },
+
+    openReplay: watchReplay,
   };
 
   /** Comes back to the Seat `seatToken` holds. Rejects with a `RoomClosedError` when the relay no longer knows the Room. */
@@ -160,6 +181,7 @@ function onThisDevice(
     roomCode: room.roomCode,
     seats: [{ ...host, connection: hostConnection }, ...restored.map((s) => connect(s.id, s.name))],
     announceRoomClosed: () => hostConnection.deliver({ t: "roomClosed" }),
+    replayFile: () => room.replayFile(),
     onSeatAdded(cb) {
       listeners.add(cb);
       return () => {

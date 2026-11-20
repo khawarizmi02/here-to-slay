@@ -1,6 +1,6 @@
 import type { RoomCode, SeatId } from "@here-to-slay/protocol";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { GameLayer, LaunchedRoom, LaunchedSeat } from "./game.js";
+import type { GameLayer, LaunchedRoom, LaunchedSeat, ReplayFile } from "./game.js";
 import { connectSeat, type DeviceSeat } from "./seat.js";
 import { EVENT_MS, type DeviceSettings } from "./settings.js";
 import { playDeviceSounds, type SoundPlayer } from "./sound.js";
@@ -24,6 +24,8 @@ export interface Device {
   readonly roomCode: RoomCode | null;
   /** Whether this device hosts a Room friends play in through the relay, so its tab must stay open. */
   readonly hosting: boolean;
+  /** The game's replay file, when this device hosts the Room; otherwise null. */
+  readonly replayFile: (() => ReplayFile | null) | null;
   /** The player the Pass-Device Step names has the device. */
   confirmPass(): void;
   close(): void;
@@ -104,6 +106,7 @@ export function connectDevice(
     store,
     roomCode: room.online ? room.roomCode : null,
     hosting: room.online !== undefined && first.host,
+    replayFile: first.host && room.replayFile ? () => room.replayFile!() : null,
     confirmPass() {
       const seat = store.getState().passTo;
       if (!seat) return;

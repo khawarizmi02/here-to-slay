@@ -49,8 +49,9 @@ export interface RoomEngine<State> {
    * discard and the first one otherwise. Without this, every decision takes the first.
    */
   isDiscardDecision?(state: State, player: PlayerId): boolean;
-  getPlayerView(state: State, player: PlayerId): PlayerViewPayload;
-  getPlayerEvents(events: readonly GameEvent[], player: PlayerId): GameEvent[];
+  /** A replay shows a spectator's view, which sees no hand. */
+  getPlayerView(state: State, player: PlayerId | "spectator"): PlayerViewPayload;
+  getPlayerEvents(events: readonly GameEvent[], player: PlayerId | "spectator"): GameEvent[];
 }
 
 export interface Clock {
