@@ -49,10 +49,38 @@ export function cardSubtitle(def: CardDef): string {
     case "cursedItem":
       return def.maskClass ? `${TYPE_LABELS[def.type]} · ${CLASS_LABELS[def.maskClass]} Mask` : TYPE_LABELS[def.type];
     case "modifier":
-      return `${TYPE_LABELS.modifier} · ${def.options.map((v) => (v > 0 ? `+${v}` : String(v))).join(" / ")}`;
+      return `${TYPE_LABELS.modifier} · ${modifierOptions(def.options)}`;
     case "monster":
       return `Needs ${describeRequirement(def.requirement)} · Slay ${def.slayAt}+ · Defeat ${def.defeatAt}-`;
     default:
       return TYPE_LABELS[def.type];
   }
+}
+
+function modifierOptions(options: readonly number[]): string {
+  return options.map((v) => (v > 0 ? `+${v}` : String(v))).join(" / ");
+}
+
+/** Everything printed on a card besides its name and text, as label and value: what a zoomed card lists. */
+export function cardFacts(def: CardDef): [label: string, value: string][] {
+  const facts: [string, string][] = [["Type", TYPE_LABELS[def.type]]];
+  switch (def.type) {
+    case "leader":
+      facts.push(["Class", CLASS_LABELS[def.class]]);
+      break;
+    case "hero":
+      facts.push(["Class", CLASS_LABELS[def.class]], ["Roll", `Roll ${def.rollRequirement}+`]);
+      break;
+    case "item":
+    case "cursedItem":
+      if (def.maskClass) facts.push(["Mask", `${CLASS_LABELS[def.maskClass]} Mask`]);
+      break;
+    case "modifier":
+      facts.push(["Options", modifierOptions(def.options)]);
+      break;
+    case "monster":
+      facts.push(["Needs", describeRequirement(def.requirement)], ["Slay", `${def.slayAt}+`], ["Defeat", `${def.defeatAt}-`]);
+      break;
+  }
+  return facts;
 }
