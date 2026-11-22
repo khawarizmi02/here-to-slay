@@ -255,7 +255,7 @@ interface BaseCardDef {
   name: string;
   text: string;         // display text
   copies: number;       // how many in the deck
-  art?: string;         // asset path
+  art?: string;         // file name in packages/cards/local/art/ (§12.4)
 }
 
 export interface LeaderDef extends BaseCardDef {
@@ -1103,7 +1103,7 @@ Decisions: target the player closest to winning. When a Decision gives up its ow
 "Play on this device" never contacts the relay. The choice comes first because a Room's code is fixed when it is built, and the relay only knows codes it issued.
 
 ### 12.4 Card rendering
-Render cards with HTML/CSS (title, class icon, roll number, text) so placeholder data looks reasonable before any art exists. Art, if added, is an optional image layer on top.
+Render cards with HTML/CSS (title, class icon, roll number, text) so placeholder data looks reasonable before any art exists. Art, if added, is an optional image layer on top: a card whose `art` field names a file in the gitignored `packages/cards/local/art/` shows that image over its HTML card, in every card view and in the zoom, and a card with no `art` or a missing file is drawn with HTML alone (issue #86).
 
 ---
 

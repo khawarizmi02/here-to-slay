@@ -1,5 +1,6 @@
 import type { CardView as Card } from "@here-to-slay/engine";
 import { createContext, useContext, useEffect, useRef, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from "react";
+import { CardArt } from "./art.js";
 import { cardDef, cardFacts, cardName } from "./cards.js";
 
 /** How long a finger rests on a card before it zooms. */
@@ -178,6 +179,7 @@ function CardZoom({ card }: { card: Card }) {
         </dl>
       )}
       {def?.text && <p className="card-text">{def.text}</p>}
+      <CardArt card={card} />
     </div>
   );
 }

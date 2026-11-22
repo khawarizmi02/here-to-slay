@@ -16,6 +16,10 @@ Put all seven files here, each a JSON array of card definitions in the same form
 
 An empty file holds `[]`. No other JSON files may sit here.
 
+## Art
+
+Card images go in `art/`, also never committed. A card shows one when its `art` field names a file there, such as `"art": "hero_bard_01.png"` (PNG, JPEG, WebP, AVIF, GIF or SVG). The image covers the card in every card view and in the zoom; the card's name and text stay underneath for screen readers. A card with no `art`, or whose file isn't there, is drawn as it is without art.
+
 ## How it is used
 
 When any of these files exist, the client plays with this set instead of the placeholder cards, and the lobby says "Local cards". With none of them, it uses the placeholder cards and the lobby says "Placeholder cards".
