@@ -34,11 +34,19 @@ export interface GameProps {
    */
   deadline: number | null;
   act(action: Action): void;
+  /**
+   * The Host's Card Set, as the game layer's `loadCardSet` made it, for a
+   * friend's Seat. Without it, the board draws the device's own cards.
+   */
+  cards?: LoadedCards;
   /** Called once the game layer sees the game is over: nothing is left to resume. */
   onGameOver(): void;
 }
 
 export type GameComponent = ComponentType<GameProps>;
+
+/** A Card Set the game layer validated, which the shell hands back to its board untouched. */
+export type LoadedCards = { readonly __loadedCards: unique symbol };
 
 /** What the shell hands the game layer's rules form in the lobby, shown only to the Host. */
 export interface RulesProps {
@@ -51,6 +59,11 @@ export interface GameLayer {
   Board: GameComponent;
   /** The name of the card set this device plays with, shown in the lobby: "Placeholder cards" or "Local cards". */
   cardSetLabel: string;
+  /**
+   * Validates the cards of the Host's Card Set, as a friend's Seat receives
+   * them (ADR-0005), for its board to draw. Throws when they are invalid.
+   */
+  loadCardSet(cards: unknown): LoadedCards;
   /** The Host's rules form for the lobby. */
   Rules: ComponentType<RulesProps>;
   /** The rules reference, shown over the first screen with the default rules. The board opens its own, with the game's. */

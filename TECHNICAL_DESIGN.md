@@ -934,6 +934,7 @@ Room to Seat:
 
 ```ts
 type RoomMsg =
+  | { t: "cardSet"; name: string; cards: unknown[] } // remote Seats only, before their first lobby or update and on every reconnect; no `art` (ADR-0005)
   | { t: "lobby"; roomCode: string; seats: LobbySeat[]; you: SeatId[] }
   | { t: "update"; version: number; events: GameEvent[]; view: PlayerView }
   | { t: "actionRejected"; clientSeq: number; error: string }

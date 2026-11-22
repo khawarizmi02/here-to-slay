@@ -42,12 +42,12 @@ export interface Device {
  */
 export function connectDevice(
   room: LaunchedRoom,
-  game: Pick<GameLayer, "seatToAct" | "viewer" | "sound" | "responseOptions">,
+  game: Pick<GameLayer, "seatToAct" | "viewer" | "sound" | "responseOptions" | "loadCardSet">,
   settings: DeviceSettings,
   sounds: SoundPlayer,
 ): Device {
-  const { seatToAct, viewer } = game;
-  const connect = (launched: LaunchedSeat) => connectSeat(launched, viewer);
+  const { seatToAct } = game;
+  const connect = (launched: LaunchedSeat) => connectSeat(launched, game);
   const first = connect(room.seats[0]!);
   const store = createStore<DeviceState>()(() => ({ seats: [first, ...room.seats.slice(1).map(connect)], onScreen: first, passTo: null, roomClosed: false }));
   /** The Seat the game last waited on, from the latest update. */

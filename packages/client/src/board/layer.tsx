@@ -1,8 +1,8 @@
 import { DEFAULT_CONFIG, type GameEvent, type PlayerView, type RuleConfig } from "@here-to-slay/engine";
 import { useState } from "react";
-import type { GameLayer, RulesProps } from "../shell/game.js";
+import type { GameLayer, LoadedCards, RulesProps } from "../shell/game.js";
 import { Board } from "./Board.js";
-import { CARD_SET } from "./cards.js";
+import { CARD_SET, receivedCards } from "./cards.js";
 import { RulesReference } from "./rules.js";
 
 const RESPONSES = new Set(["PASS", "PLAY_CHALLENGE", "PLAY_MODIFIER"]);
@@ -11,6 +11,8 @@ const RESPONSES = new Set(["PASS", "PLAY_CHALLENGE", "PLAY_MODIFIER"]);
 export const realGame: GameLayer = {
   Board,
   cardSetLabel: CARD_SET.label,
+  // The board takes it back as its `cards`: the shell never reads inside.
+  loadCardSet: (cards) => receivedCards(cards) as unknown as LoadedCards,
   Rules,
   RulesReference,
   seatToAct(payload) {

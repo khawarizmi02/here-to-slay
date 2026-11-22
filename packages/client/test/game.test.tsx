@@ -1,7 +1,7 @@
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GameState, ModifierWindowFrame } from "@here-to-slay/engine";
-import { cardName } from "../src/board/cards.js";
+import { DEVICE_CARDS } from "../src/board/cards.js";
 import type { FakeConnection } from "./fake-connection.js";
 import { ALICE_HERO, BOT_HERO, CHALLENGE, MODIFIER, engine, newGame as game, play, step, update, type GameSetup } from "./real-game.js";
 import { ALICE, BOT, renderInLobby, skipAnimations } from "./render.js";
@@ -219,7 +219,7 @@ describe("decisions", () => {
     const connection = await inGame(state, decision.player);
     const modal = within(screen.getByRole("dialog", { name: decision.prompt }));
     const first = decision.options[0]!;
-    modal.getByRole("button", { name: cardName(first.def!) }).click();
+    modal.getByRole("button", { name: DEVICE_CARDS.name(first.def!) }).click();
     expect(modal.getAllByRole("button")).toHaveLength(decision.options.length);
     expect(sent(connection)).toEqual([{ type: "RESOLVE_DECISION", player: decision.player, decisionId: decision.id, answer: { selected: [first.id] } }]);
   });

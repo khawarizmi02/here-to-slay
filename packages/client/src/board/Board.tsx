@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Countdown } from "../shell/Countdown.js";
 import type { GameProps } from "../shell/game.js";
 import { CardArt } from "./art.js";
-import { cardDef, cardName, cardSubtitle } from "./cards.js";
+import { CardsContext, DEVICE_CARDS, cardSubtitle, useCards, type CardLookup } from "./cards.js";
 import { logLine, nameIn, whoIn } from "./log.js";
 import { RulesReference } from "./rules.js";
 import { spotlight } from "./spotlight.js";
@@ -33,7 +33,17 @@ interface Control {
  * `legalActions`, the reasons on disabled controls from `blockedActions`,
  * and response options from the shell. It holds no game rules.
  */
-export function Board({ view: payload, log, playing, responseOptions, deadline, act, onGameOver }: GameProps) {
+export function Board({ cards, ...props }: GameProps) {
+  // A friend's Room draws from the Host's Card Set; everyone else from the device's own.
+  return (
+    <CardsContext.Provider value={(cards as unknown as CardLookup | undefined) ?? DEVICE_CARDS}>
+      <Table {...props} />
+    </CardsContext.Provider>
+  );
+}
+
+function Table({ view: payload, log, playing, responseOptions, deadline, act, onGameOver }: Omit<GameProps, "cards">) {
+  const cards = useCards();
   const view = payload as unknown as PlayerView;
   const events = log as unknown as GameEvent[];
   // While an event plays the view is out of date: what it offers may no longer be legal.
@@ -96,7 +106,7 @@ export function Board({ view: payload, log, playing, responseOptions, deadline, 
           <section aria-label="Now playing" className="now-playing">
             {/* Keyed by the event's place in the log, so each one plays its own highlight. */}
             <motion.p key={events.length} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}>
-              {logLine(playing as unknown as GameEvent, view) ?? " "}
+              {logLine(playing as unknown as GameEvent, view, cards) ?? " "}
             </motion.p>
           </section>
         )}
@@ -127,11 +137,12 @@ type ControlFn = (type: Action["type"], subject?: string) => Control;
 
 /** A single card, drawn with HTML and CSS (§12.4). Hover, focus or a long press zooms it to be read. */
 export function CardView({ card, children, className }: { card: Card; children?: ReactNode; className?: string }) {
-  const def = cardDef(card);
+  const cards = useCards();
+  const def = cards.def(card);
   const zoomable = useZoomable(card);
   return (
     <div {...zoomable} className={`card card-${def?.type ?? "unknown"}${className ? ` ${className}` : ""}`} data-card={card.id}>
-      <strong className="card-name">{cardName(card)}</strong>
+      <strong className="card-name">{cards.name(card)}</strong>
       {def && <span className="card-subtitle">{cardSubtitle(def)}</span>}
       {def?.text && <span className="card-text">{def.text}</span>}
       <CardArt card={card} />
@@ -142,10 +153,11 @@ export function CardView({ card, children, className }: { card: Card; children?:
 
 /** A card shown by name alone, as an equipped item or a slain monster: it zooms like a whole card. */
 function CardChip({ card }: { card: Card }) {
+  const cards = useCards();
   const zoomable = useZoomable(card);
   return (
     <span {...zoomable} className="card-chip" data-card={card.id}>
-      {cardName(card)}
+      {cards.name(card)}
     </span>
   );
 }
@@ -210,11 +222,12 @@ function OpponentArea({ player, active }: { player: Player; active: boolean }) {
 }
 
 function MonsterRow({ view, control, act }: { view: PlayerView; control: ControlFn; act(a: Action): void }) {
+  const cards = useCards();
   return (
     <section aria-label="Monsters" className="monsters">
       {view.activeMonsters.map((m) => (
         <CardView key={m.id} card={m}>
-          <ControlButton label={`Attack ${cardName(m)}`} control={control("ATTACK_MONSTER", m.id)} onPick={([a]) => act(a!)}>
+          <ControlButton label={`Attack ${cards.name(m)}`} control={control("ATTACK_MONSTER", m.id)} onPick={([a]) => act(a!)}>
             Attack
           </ControlButton>
         </CardView>
@@ -248,6 +261,7 @@ function DeckPile({ view }: { view: PlayerView }) {
 }
 
 function DiscardPile({ view }: { view: PlayerView }) {
+  const cards = useCards();
   const top = view.discardPile.at(-1);
   return (
     <section aria-label="Discard" className="pile discard">
@@ -257,7 +271,7 @@ function DiscardPile({ view }: { view: PlayerView }) {
         {top ? (
           <ol aria-label="Discard pile">
             {[...view.discardPile].reverse().map((c) => (
-              <li key={c.id}>{cardName(c)}</li>
+              <li key={c.id}>{cards.name(c)}</li>
             ))}
           </ol>
         ) : (
@@ -298,13 +312,14 @@ function ResponseBar({
   deadline: number | null;
   act(a: Action): void;
 }) {
+  const cards = useCards();
   const window = view.responseWindow;
   const handCard = (id: string) => view.hand.find((c) => c.id === id);
   return (
     <>
-      {window?.kind === "challenge" && <p className="window">A Challenge Window is open on {cardName(window.card)}</p>}
+      {window?.kind === "challenge" && <p className="window">A Challenge Window is open on {cards.name(window.card)}</p>}
       {window?.kind === "modifier" && (
-        <p className="window">{modifierWindowLine(view, window.rolls)}</p>
+        <p className="window">{modifierWindowLine(view, window.rolls, cards)}</p>
       )}
       {/* Names nobody: who is still awaited would hint at who holds a usable card. */}
       {window && view.me !== "spectator" && !window.awaiting.includes(view.me) && (
@@ -316,7 +331,7 @@ function ResponseBar({
         <section aria-label="Respond" className="response-bar">
           {responseOptions.map((action) => (
             <button key={JSON.stringify(action)} type="button" onClick={() => act(action)}>
-              {responseLabel(action, view, handCard)}
+              {responseLabel(action, view, handCard, cards)}
             </button>
           ))}
           {deadline !== null && <Countdown deadline={deadline} />}
@@ -326,11 +341,11 @@ function ResponseBar({
   );
 }
 
-function responseLabel(action: Action, view: PlayerView, handCard: (id: string) => Card | undefined): string {
+function responseLabel(action: Action, view: PlayerView, handCard: (id: string) => Card | undefined, cards: CardLookup): string {
   if (action.type === "PASS") return "Pass";
-  if (action.type === "PLAY_CHALLENGE") return `Play ${cardName(handCard(action.card) ?? action.card)}`;
+  if (action.type === "PLAY_CHALLENGE") return `Play ${cards.name(handCard(action.card) ?? action.card)}`;
   if (action.type === "PLAY_MODIFIER") {
-    const name = cardName(handCard(action.card) ?? action.card);
+    const name = cards.name(handCard(action.card) ?? action.card);
     const value = action.value > 0 ? `+${action.value}` : String(action.value);
     const rolls = view.responseWindow?.kind === "modifier" ? view.responseWindow.rolls : [];
     const target = rolls.findIndex((r) => r.roll === action.roll);
@@ -360,19 +375,19 @@ type ChallengeRoll = Extract<WindowRoll, { rollKind: "challenge" }>;
  * total so far and what it needs. A Challenge's two rolls make one line,
  * with the side winning at those totals as the engine judges it.
  */
-function modifierWindowLine(view: PlayerView, rolls: WindowRoll[]): string {
+function modifierWindowLine(view: PlayerView, rolls: WindowRoll[], cards: CardLookup): string {
   const name = (id: string) => nameIn(view, id);
   const challenge = rolls.filter((r): r is ChallengeRoll => r.rollKind === "challenge");
   const challenger = challenge.find((r) => r.side === "challenger");
   const defender = challenge.find((r) => r.side === "defender");
   if (challenger && defender) {
     const winner = rollOutcomes(rolls, view.config)[0] === "challengeSucceeds" ? challenger : defender;
-    return `${name(challenger.player)} challenges ${name(defender.player)}'s ${cardName(challenger.target)}: ${challenger.total} vs ${defender.total}, ${name(winner.player)} is winning`;
+    return `${name(challenger.player)} challenges ${name(defender.player)}'s ${cards.name(challenger.target)}: ${challenger.total} vs ${defender.total}, ${name(winner.player)} is winning`;
   }
   return rolls
     .map((r) => {
-      if (r.rollKind === "heroEffect") return `${name(r.player)} rolls for ${cardName(r.hero)}'s effect: ${r.total}, needs ${r.needs}+`;
-      if (r.rollKind === "monsterAttack") return `${name(r.player)} attacks ${cardName(r.monster)}: ${r.total}, slays on ${r.needs}+, defeated on ${r.defeatAt} or less`;
+      if (r.rollKind === "heroEffect") return `${name(r.player)} rolls for ${cards.name(r.hero)}'s effect: ${r.total}, needs ${r.needs}+`;
+      if (r.rollKind === "monsterAttack") return `${name(r.player)} attacks ${cards.name(r.monster)}: ${r.total}, slays on ${r.needs}+, defeated on ${r.defeatAt} or less`;
       return `${name(r.player)}'s roll: ${r.total}`;
     })
     .join("; ");
@@ -391,6 +406,7 @@ function DecisionModal({
   deadline: number | null;
   act(a: Action): void;
 }) {
+  const cards = useCards();
   return (
     <div role="dialog" aria-label={decision.prompt} className="decision">
       <h3>{decision.prompt}</h3>
@@ -398,7 +414,7 @@ function DecisionModal({
         const answer = legal.find((a) => a.type === "RESOLVE_DECISION" && a.answer.selected[0] === option.id);
         return (
           <button key={option.id} type="button" disabled={!answer} onClick={() => answer && act(answer)}>
-            {optionLabel(view, option)}
+            {optionLabel(view, option, cards)}
           </button>
         );
       })}
@@ -407,10 +423,10 @@ function DecisionModal({
   );
 }
 
-function optionLabel(view: PlayerView, option: PendingDecision["options"][number]): string {
+function optionLabel(view: PlayerView, option: PendingDecision["options"][number], cards: CardLookup): string {
   if (option.label) return option.label;
   if (option.def) {
-    const name = cardName(option.def);
+    const name = cards.name(option.def);
     const owner = view.players.find((p) => p.party.some((h) => h.hero.id === option.id));
     return owner && owner.id !== view.me ? `${name} (${owner.name})` : name;
   }
@@ -418,6 +434,7 @@ function optionLabel(view: PlayerView, option: PendingDecision["options"][number
 }
 
 function Party({ player, control, act }: { player: Player; control: ControlFn; act(a: Action): void }) {
+  const cards = useCards();
   return (
     <section aria-label="Your party" className="party">
       {player.leader && <CardView card={player.leader} className="leader" />}
@@ -428,7 +445,7 @@ function Party({ player, control, act }: { player: Player; control: ControlFn; a
                 + <CardChip card={h.item} />
               </span>
             )}
-          <ControlButton label={`Roll for ${cardName(h.hero)}`} control={control("ROLL_HERO_EFFECT", h.hero.id)} onPick={([a]) => act(a!)}>
+          <ControlButton label={`Roll for ${cards.name(h.hero)}`} control={control("ROLL_HERO_EFFECT", h.hero.id)} onPick={([a]) => act(a!)}>
             Roll
           </ControlButton>
         </CardView>
@@ -459,8 +476,8 @@ function ActionBar({ view, control: given, act, notYourTurn }: { view: PlayerVie
 }
 
 /** The turn action that plays a card of this type from the hand, if any: responses are played from the Respond bar. */
-function playType(card: Card): "PLAY_HERO" | "PLAY_ITEM" | "PLAY_MAGIC" | null {
-  switch (cardDef(card)?.type) {
+function playType(card: Card, cards: CardLookup): "PLAY_HERO" | "PLAY_ITEM" | "PLAY_MAGIC" | null {
+  switch (cards.def(card)?.type) {
     case "hero":
       return "PLAY_HERO";
     case "item":
@@ -474,18 +491,19 @@ function playType(card: Card): "PLAY_HERO" | "PLAY_ITEM" | "PLAY_MAGIC" | null {
 }
 
 /** The hint on a hand card that is only played in answer to something. */
-function responseHint(card: Card): string | null {
-  const type = cardDef(card)?.type;
+function responseHint(card: Card, cards: CardLookup): string | null {
+  const type = cards.def(card)?.type;
   if (type === "challenge") return "Play it when someone plays a card";
   if (type === "modifier") return "Play it on a roll";
   return null;
 }
 
 function Hand({ view, control, act }: { view: PlayerView; control: ControlFn; act(a: Action): void }) {
+  const cards = useCards();
   const [choosing, setChoosing] = useState<string | null>(null);
   const playsFor = (card: Card): Control => {
-    const type = playType(card);
-    return type ? control(type, card.id) : { actions: [], reason: responseHint(card) };
+    const type = playType(card, cards);
+    return type ? control(type, card.id) : { actions: [], reason: responseHint(card, cards) };
   };
   const targets = choosing ? playsFor({ id: choosing, def: view.hand.find((c) => c.id === choosing)?.def ?? "" }).actions : [];
   return (
@@ -494,7 +512,7 @@ function Hand({ view, control, act }: { view: PlayerView; control: ControlFn; ac
         {view.hand.map((card) => (
           <CardView key={card.id} card={card}>
             <ControlButton
-              label={cardName(card)}
+              label={cards.name(card)}
               control={playsFor(card)}
               onPick={(actions) => {
                 if (actions.length === 1) act(actions[0]!);
@@ -507,7 +525,7 @@ function Hand({ view, control, act }: { view: PlayerView; control: ControlFn; ac
         ))}
       </section>
       {choosing && targets.length > 1 && (
-        <section aria-label={`Equip ${cardName(view.hand.find((c) => c.id === choosing) ?? choosing)}`} className="targets">
+        <section aria-label={`Equip ${cards.name(view.hand.find((c) => c.id === choosing) ?? choosing)}`} className="targets">
           <p>Which hero?</p>
           {targets.map((a) => {
             const hero = a.type === "PLAY_ITEM" ? a.targetHero : "";
@@ -522,7 +540,7 @@ function Hand({ view, control, act }: { view: PlayerView; control: ControlFn; ac
                   act(a);
                 }}
               >
-                {heroCard ? cardName(heroCard) : hero}
+                {heroCard ? cards.name(heroCard) : hero}
                 {owner && owner.id !== view.me ? ` (${owner.name})` : ""}
               </button>
             );
@@ -541,9 +559,10 @@ function Hand({ view, control, act }: { view: PlayerView; control: ControlFn; ac
  * newest first so the latest line shows without scrolling. It starts collapsed.
  */
 function GameLog({ view, events }: { view: PlayerView; events: GameEvent[] }) {
+  const cards = useCards();
   // The log only grows, so an event's place in it is a key that stays put as lines are added.
   const lines = events
-    .map((event, index) => ({ index, line: logLine(event, view) }))
+    .map((event, index) => ({ index, line: logLine(event, view, cards) }))
     .filter((entry): entry is { index: number; line: string } => entry.line !== null)
     .reverse();
   return (

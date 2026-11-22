@@ -1,7 +1,7 @@
 import { act, cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { finishedReplay, update, viewOf, type PlayerView } from "./real-game.js";
-import { ALICE, BOT, renderClient, renderInLobby } from "./render.js";
+import { ALICE, BOT, HOST_CARD_SET, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
 
@@ -107,7 +107,7 @@ describe("downloading a replay", () => {
     const { connection, user } = renderClient();
     await user.type(screen.getByLabelText("Room Code"), "ABCDE");
     await user.click(screen.getByRole("button", { name: "Join with a Room Code" }));
-    connection.receive({ t: "update", version: 1, events: [], view: viewOf(game.final, "s1") });
+    connection.receive(HOST_CARD_SET, { t: "update", version: 1, events: [], view: viewOf(game.final, "s1") });
     expect(await screen.findByRole("heading", { name: `${winner} wins!` })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Download replay" })).toBeNull();
   });

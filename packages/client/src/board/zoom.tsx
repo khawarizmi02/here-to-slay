@@ -1,7 +1,7 @@
 import type { CardView as Card } from "@here-to-slay/engine";
 import { createContext, useContext, useEffect, useRef, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from "react";
 import { CardArt } from "./art.js";
-import { cardDef, cardFacts, cardName } from "./cards.js";
+import { cardFacts, useCards } from "./cards.js";
 
 /** How long a finger rests on a card before it zooms. */
 const LONG_PRESS_MS = 500;
@@ -94,6 +94,7 @@ function forThisCard(e: SyntheticEvent<HTMLElement>): boolean {
  */
 export function useZoomable(card: Card): HTMLAttributes<HTMLElement> & { "data-zoomable": true } {
   const zoom = useContext(ZoomContext);
+  const cards = useCards();
   const pendingPress = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const longPressFired = useRef(false);
   /** Until when a click is the end of a long press, not a tap. */
@@ -113,7 +114,7 @@ export function useZoomable(card: Card): HTMLAttributes<HTMLElement> & { "data-z
   return {
     "data-zoomable": true,
     role: "figure",
-    "aria-label": cardName(card),
+    "aria-label": cards.name(card),
     tabIndex: 0,
     onPointerOver(e) {
       if (e.pointerType !== "touch" && forThisCard(e)) zoom.open(card, e.currentTarget);
@@ -164,10 +165,11 @@ export function useZoomable(card: Card): HTMLAttributes<HTMLElement> & { "data-z
 
 /** The large view of a card: everything printed on it. */
 function CardZoom({ card }: { card: Card }) {
-  const def = cardDef(card);
+  const cards = useCards();
+  const def = cards.def(card);
   return (
     <div role="dialog" aria-label="Zoomed card" className={`card-zoom card card-${def?.type ?? "unknown"}`}>
-      <h2 className="card-name">{cardName(card)}</h2>
+      <h2 className="card-name">{cards.name(card)}</h2>
       {def && (
         <dl>
           {cardFacts(def).map(([term, value]) => (

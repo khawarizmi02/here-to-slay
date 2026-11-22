@@ -35,7 +35,11 @@ export function SeatScreen({
     onGameOver();
   }, [onGameOver]);
   const replayFile = gameIsOver ? device.replayFile : null;
-  const { lobby, view, log, playing, responseOptions, deadline, error, hostAway } = useStore(seat.store);
+  const { lobby, view, log, playing, responseOptions, deadline, error, hostAway, cardSet, cardSetFailed } = useStore(seat.store);
+  // A friend's Seat draws only the Host's Card Set (ADR-0005): it has no name for it, and shows no board, until it arrives.
+  const cards = seat.remote
+    ? { ready: cardSet !== null, failed: cardSetFailed, label: cardSet?.name ?? "", props: cardSet ? { cards: cardSet.cards } : {} }
+    : { ready: true, failed: false, label: game.cardSetLabel, props: {} };
   return (
     <>
       <header className="room-bar">
@@ -76,8 +80,15 @@ export function SeatScreen({
               Your time to respond: <Countdown deadline={deadline} />
             </p>
           )}
-          {view ? (
+          {cards.failed ? (
+            <p role="alert" className="error">
+              Couldn't load the Host's cards
+            </p>
+          ) : view && !cards.ready ? (
+            <p>Connecting…</p>
+          ) : view ? (
             <game.Board
+              {...cards.props}
               view={view}
               log={log}
               playing={playing}
@@ -91,7 +102,7 @@ export function SeatScreen({
               seats={lobby}
               roomCode={device.roomCode}
               host={seat.host}
-              cardSetLabel={game.cardSetLabel}
+              cardSetLabel={cards.label}
               Rules={game.Rules}
               onSetConfig={seat.setConfig}
               onAddPlayer={seat.addLocalSeat}

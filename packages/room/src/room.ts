@@ -121,6 +121,19 @@ export interface RoomOptions<State> {
    * refresh can rebuild the game with `Room.restore`. Without one, nothing is saved.
    */
   store?: ActionLogStore;
+  /**
+   * The Host's Card Set, sent to every remote Seat before its first lobby or
+   * update and again whenever it reconnects (ADR-0005). The Room never reads
+   * the cards; it only removes each one's `art` field, so no art leaves the
+   * Host's machine. Without one, friends get none.
+   */
+  cardSet?: CardSetOption;
+}
+
+/** The Host's Card Set as the Room sends it to friends: its lobby name and its cards' JSON. */
+export interface CardSetOption {
+  name: string;
+  cards: readonly unknown[];
 }
 
 export const MAX_SEATS = 6;
@@ -253,6 +266,8 @@ export class Room<State> {
   readonly #random: () => number;
   readonly #makeBot: BotFactory;
   readonly #store: ActionLogStore | null;
+  /** The message every remote Seat gets with the Host's Card Set, already without art. */
+  readonly #cardSet: RoomMsg | null;
   /** Settles once every save made so far has settled. */
   #saving: Promise<void> = Promise.resolve();
   #saveError: unknown = null;
@@ -287,6 +302,7 @@ export class Room<State> {
     this.#random = opts.random;
     this.#makeBot = opts.bot ?? (() => randomBot(this.#random));
     this.#store = opts.store ?? null;
+    this.#cardSet = opts.cardSet ? { t: "cardSet", name: opts.cardSet.name, cards: opts.cardSet.cards.map(withoutArt) } : null;
     this.roomCode = opts.roomCode ?? this.#makeRoomCode();
     if (restoring) {
       this.#replay(restoring);
@@ -428,6 +444,7 @@ export class Room<State> {
 
   #connectRemote(seat: Seat, relay: HostRelay): void {
     seat.connection = new RemotePeer(relay, seat.seatToken!);
+    this.#sendCardSet(seat);
     if (this.#game) this.#sendCurrentUpdate(seat);
     else this.#broadcastLobby();
   }
@@ -1161,7 +1178,14 @@ export class Room<State> {
     this.#asking = null;
   }
 
+  /** Sends a remote Seat the Host's Card Set; local Seats use the device's own. */
+  #sendCardSet(seat: Seat): void {
+    if (seat.kind === "remote" && this.#cardSet) this.#send(seat, this.#cardSet);
+  }
+
+  /** A Seat's current lobby or update, after the Card Set it needs to draw it. */
   #sendCurrent(seat: Seat): void {
+    this.#sendCardSet(seat);
     if (this.#game) this.#sendCurrentUpdate(seat);
     else this.#sendLobby(seat);
   }
@@ -1238,6 +1262,14 @@ function isDeciding(legal: readonly Action[]): boolean {
 /** Whether a responding player holds a usable card: anything to do but pass. */
 function hasResponseOptions(legal: readonly Action[]): boolean {
   return legal.some((a) => a.type !== "PASS");
+}
+
+/** A card's JSON without its `art` field: art file names stay on the Host's machine. */
+function withoutArt(card: unknown): unknown {
+  if (typeof card !== "object" || card === null || Array.isArray(card)) return card;
+  const rest = { ...(card as Record<string, unknown>) };
+  delete rest.art;
+  return rest;
 }
 
 function withoutSeatTokens(record: RoomRecord): RoomRecord {
