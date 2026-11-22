@@ -5,10 +5,12 @@ import { describeRequirement, type CardView } from "@here-to-slay/engine";
  * The card set the Room plays with: the private local set in
  * `packages/cards/local/` when its files exist, the placeholder set
  * otherwise. A broken local set throws here, at startup, naming the card and
- * the field. The glob finds nothing in a fresh clone.
+ * the field. The glob finds nothing in a fresh clone. The unit tests (Vite's
+ * `test` mode) always use the placeholder set, so they pass with or without
+ * a local set.
  */
 export const CARD_SET: CardSet = chooseCardSet(
-  import.meta.glob("../../../cards/local/*.json", { eager: true, import: "default" }),
+  import.meta.env.MODE === "test" ? {} : import.meta.glob("../../../cards/local/*.json", { eager: true, import: "default" }),
 );
 
 /**
