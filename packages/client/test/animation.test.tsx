@@ -64,7 +64,7 @@ describe("the animation queue", () => {
 
     const joined = step(played.state, botPasses, "s1", 3);
     connection.receive(joined.msg);
-    expect(logLines()).toEqual(["You played Placeholder Bard 1", "Placeholder Bard 1 joined your party"]);
+    expect(logLines()).toEqual(["Placeholder Bard 1 joined your party", "You played Placeholder Bard 1"]);
     expect(heroInParty()).toBe(false);
     wait(300);
     expect(heroInParty()).toBe(true);
@@ -73,7 +73,7 @@ describe("the animation queue", () => {
     connection.receive(step(joined.state, endTurn, "s1", 4).msg);
     expect(logLines()).toHaveLength(2);
     wait(300);
-    expect(logLines().at(-1)).toBe("Turn 2: Bot 1's turn");
+    expect(logLines()[0]).toBe("Turn 2: Bot 1's turn");
     expect(screen.getByRole("region", { name: "Now playing" })).toHaveTextContent("Turn 2: Bot 1's turn");
     expect(turnLine()).toHaveTextContent("Turn 1: your turn");
     wait(300);
@@ -109,7 +109,7 @@ describe("the animation queue", () => {
     connection.receive(played.msg);
     connection.receive(step(played.state, botPasses, "s1", 1).msg);
     expect(heroInParty()).toBe(true);
-    expect(logLines()).toEqual(["You played Placeholder Bard 1", "Placeholder Bard 1 joined your party"]);
+    expect(logLines()).toEqual(["Placeholder Bard 1 joined your party", "You played Placeholder Bard 1"]);
     expect(screen.queryByRole("region", { name: "Now playing" })).toBeNull();
   });
 

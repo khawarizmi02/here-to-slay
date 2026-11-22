@@ -534,15 +534,22 @@ function Hand({ view, control, act }: { view: PlayerView; control: ControlFn; ac
   );
 }
 
-/** What happened, one line per event, in the words of the Seat reading it. It starts collapsed. */
+/**
+ * What happened, one line per event, in the words of the Seat reading it,
+ * newest first so the latest line shows without scrolling. It starts collapsed.
+ */
 function GameLog({ view, events }: { view: PlayerView; events: GameEvent[] }) {
-  const lines = events.map((e) => logLine(e, view)).filter((line) => line !== null);
+  // The log only grows, so an event's place in it is a key that stays put as lines are added.
+  const lines = events
+    .map((event, index) => ({ index, line: logLine(event, view) }))
+    .filter((entry): entry is { index: number; line: string } => entry.line !== null)
+    .reverse();
   return (
     <details className="game-log">
       <summary>Game log</summary>
       <ol aria-label="Game log">
-        {lines.map((line, i) => (
-          <li key={i}>{line}</li>
+        {lines.map(({ index, line }) => (
+          <li key={index}>{line}</li>
         ))}
       </ol>
     </details>

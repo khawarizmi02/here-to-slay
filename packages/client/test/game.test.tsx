@@ -28,6 +28,10 @@ async function inGame(state: GameState, seat = "s1"): Promise<FakeConnection> {
 
 const hand = () => within(screen.getByRole("region", { name: "Your hand" }));
 const sent = (connection: FakeConnection) => connection.takeSent().map((m) => ("action" in m ? m.action : m));
+const logLines = () =>
+  within(screen.getByRole("list", { name: "Game log" }))
+    .getAllByRole("listitem")
+    .map((li) => li.textContent);
 
 describe("turns", () => {
   it("makes only legal actions clickable, and plays the one clicked", async () => {
@@ -230,13 +234,7 @@ describe("decisions", () => {
 });
 
 describe("the game log", () => {
-  function logLines() {
-    return within(screen.getByRole("list", { name: "Game log" }))
-      .getAllByRole("listitem")
-      .map((li) => li.textContent);
-  }
-
-  it("tells the Seat what happened, update by update, in a log that starts collapsed", async () => {
+  it("tells the Seat what happened, update by update, newest first, in a log that starts collapsed", async () => {
     const connection = await inGame(newGame());
     expect(screen.getByText("Game log").closest("details")).not.toHaveAttribute("open");
 
@@ -244,8 +242,9 @@ describe("the game log", () => {
     skipAnimations();
     const played = step(newGame(), { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }, "s1", 2);
     connection.receive(played.msg);
+    expect(logLines()).toEqual(["You played Placeholder Bard 1"]);
     connection.receive(step(played.state, { type: "PASS", player: "s2" }, "s1", 3).msg);
-    expect(logLines()).toEqual(["You played Placeholder Bard 1", "Placeholder Bard 1 joined your party"]);
+    expect(logLines()).toEqual(["Placeholder Bard 1 joined your party", "You played Placeholder Bard 1"]);
   });
 
   it("shows only what the Seat may see: a card someone else draws stays hidden", async () => {
@@ -269,5 +268,21 @@ describe("game over", () => {
     await inGame(won, "s2");
     expect(screen.getByRole("heading", { name: "Alice wins!" })).toBeInTheDocument();
     expect(screen.getByText("By slaying monsters")).toBeInTheDocument();
+  });
+
+  it("keeps the game log, newest first, on the game-over screen", async () => {
+    const connection = await inGame(newGame());
+    skipAnimations();
+    const played = step(newGame(), { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }, "s1", 2);
+    connection.receive(played.msg);
+    const joined = step(played.state, { type: "PASS", player: "s2" }, "s1", 3);
+    connection.receive(joined.msg);
+    const won = structuredClone(joined.state);
+    won.winner = "s1";
+    won.winReason = "monsters";
+    won.phase = { kind: "gameOver" };
+    connection.receive(update(won, "s1", 4));
+    expect(screen.getByRole("heading", { name: /wins!/ })).toBeInTheDocument();
+    expect(logLines()).toEqual(["Placeholder Bard 1 joined your party", "You played Placeholder Bard 1"]);
   });
 });
