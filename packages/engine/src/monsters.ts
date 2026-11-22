@@ -1,4 +1,5 @@
 import type { MonsterDef, Requirement } from "@here-to-slay/cards";
+import { attackOutcome } from "./modifiers.js";
 import { playerState } from "./players.js";
 import { heroClass } from "./selectors.js";
 import { effectFrame, pushTriggers, runStack } from "./stack.js";
@@ -52,9 +53,7 @@ export function attackMonster(defs: CardIndex, state: GameState, player: PlayerI
  * on the stack, run by the attacker; otherwise nothing.
  */
 export function monsterAttackOutcome(def: MonsterDef, total: number): "slain" | "defeated" | "nothing" {
-  if (total >= def.slayAt) return "slain";
-  if (total <= def.defeatAt) return "defeated";
-  return "nothing";
+  return attackOutcome(total, def.slayAt, def.defeatAt);
 }
 
 /** Pushes `monster`'s penalty, run as an effect controlled by `player`. */

@@ -1,4 +1,5 @@
 import { fromPlayer, playerState } from "./players.js";
+import type { RuleConfig } from "./config.js";
 import type { Action, CardIndex, CardInstanceId, GameEvent, GameState, ModifierWindowFrame, PlayerId, WindowRoll } from "./types.js";
 
 /*
@@ -64,4 +65,43 @@ export function closeModifierWindow(state: GameState): void {
     below.challengerTotal = total(below.challengerRoll);
     below.defenderTotal = total(below.defenderRoll);
   } else throw new Error("A Modifier Window with no roll or duel under it");
+}
+
+/** What a roll in a Modifier Window leads to at its total: a hero's effect, a monster attack, or the Challenge it is one side of. */
+export type RollOutcome = "succeeds" | "fails" | "slain" | "nothing" | "defeated" | "challengeSucceeds" | "challengeFails";
+
+/**
+ * What each roll in a Modifier Window leads to at its current total (§3.5,
+ * §3.7): a hero roll succeeds at or above what it needs; a monster attack
+ * slays at or above the slay value, is defeated at or below the defeat value,
+ * and does nothing between; both rolls of a Challenge say whether it succeeds,
+ * a tie going to `challengeTieWinner`. In the order of `rolls`.
+ */
+export function rollOutcomes(rolls: readonly WindowRoll[], config: Pick<RuleConfig, "challengeTieWinner">): RollOutcome[] {
+  return rolls.map((r) => {
+    if (r.rollKind === "heroEffect") return r.total >= r.needs ? "succeeds" : "fails";
+    if (r.rollKind === "monsterAttack") return attackOutcome(r.total, r.needs, r.defeatAt);
+    const side = (s: "challenger" | "defender") => rolls.find((o) => o.rollKind === "challenge" && o.side === s);
+    const challenger = side("challenger");
+    const defender = side("defender");
+    if (challenger === undefined || defender === undefined) throw new Error("A Challenge roll without the other side's");
+    return challengeSucceeds(config, challenger.total, defender.total) ? "challengeSucceeds" : "challengeFails";
+  });
+}
+
+/** The rolls as they would be after a Modifier of `value` on the roll `rollId` (§3.6): its value is added to that roll's total. */
+export function withModifier(rolls: readonly WindowRoll[], rollId: string, value: number): WindowRoll[] {
+  return rolls.map((r) => (r.roll === rollId ? { ...r, total: r.total + value } : r));
+}
+
+/** A monster attack at `total` against these values (§3.5). */
+export function attackOutcome(total: number, slayAt: number, defeatAt: number): "slain" | "nothing" | "defeated" {
+  if (total >= slayAt) return "slain";
+  if (total <= defeatAt) return "defeated";
+  return "nothing";
+}
+
+/** Whether a Challenge succeeds at these totals: the challenger wins outright, or ties when `challengeTieWinner` gives ties to them (§3.7). */
+export function challengeSucceeds(config: Pick<RuleConfig, "challengeTieWinner">, challengerTotal: number, defenderTotal: number): boolean {
+  return config.challengeTieWinner === "challenger" ? challengerTotal >= defenderTotal : challengerTotal > defenderTotal;
 }

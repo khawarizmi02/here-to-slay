@@ -201,16 +201,24 @@ export interface AppliedModifier {
 
 /**
  * One roll in a Modifier Window: `total` is its dice, passive bonus and every
- * Modifier played on it so far. A hero or monster roll says the total it
- * `needs`: the hero's roll number, or the monster's slay value. A Challenge
- * roll says its `side` instead, as it is compared to the other side's.
+ * Modifier played on it so far. Each names the card it is about: the hero,
+ * the monster, or the card being Challenged. A hero or monster roll says the
+ * total it `needs`: the hero's roll number, or the monster's slay value. A
+ * Challenge roll says its `side` instead, as it is compared to the other
+ * side's. `rollOutcomes` says what the rolls lead to at their totals.
  */
 export type WindowRoll = {
   roll: string;
   player: PlayerId;
   total: number;
   modifiers: AppliedModifier[];
-} & ({ rollKind: "heroEffect" | "monsterAttack"; needs: number } | { rollKind: "challenge"; side: "challenger" | "defender" });
+} & (
+  | { rollKind: "heroEffect"; hero: CardView; needs: number }
+  /** `needs` is the slay value; at or below `defeatAt` the attacker is defeated. */
+  | { rollKind: "monsterAttack"; monster: CardView; needs: number; defeatAt: number }
+  /** `target` is the card being Challenged. */
+  | { rollKind: "challenge"; side: "challenger" | "defender"; target: CardView }
+);
 
 /**
  * A Modifier Window (GLOSSARY.md "Response Window") on the roll or Challenge

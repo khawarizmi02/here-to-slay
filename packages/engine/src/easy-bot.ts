@@ -1,5 +1,6 @@
 import type { CardDef, Effect, HeroClass, PassiveAbility, RollKind } from "@here-to-slay/cards";
 import type { Action, PlayerViewPayload } from "@here-to-slay/protocol";
+import { rollOutcomes, withModifier } from "./modifiers.js";
 import { ACCEPT, DECLINE, type CardDefId, type PlayerView, type WindowRoll } from "./types.js";
 
 /** Matches the Room's `Bot` by shape, without importing the Room (ADR-0002). */
@@ -203,17 +204,16 @@ export function createEasyBot(cardDefs: readonly CardDef[], random: () => number
       const goes = (roller: string, made: boolean) => (roller === me.id ? made : roller === leader ? !made : undefined);
       const [first] = rolls;
       if (first === undefined) return undefined;
-      if (first.rollKind !== "challenge") return goes(first.player, first.total >= first.needs);
-      const challenger = rolls.find((r) => r.rollKind === "challenge" && r.side === "challenger");
-      const defender = rolls.find((r) => r.rollKind === "challenge" && r.side === "defender");
-      if (challenger === undefined || defender === undefined) return undefined;
-      const succeeds = view.config.challengeTieWinner === "challenger" ? challenger.total >= defender.total : challenger.total > defender.total;
-      return goes(challenger.player, succeeds) ?? goes(defender.player, !succeeds);
+      const [outcome] = rollOutcomes(rolls, view.config);
+      if (first.rollKind !== "challenge") return goes(first.player, outcome === "succeeds" || outcome === "slain");
+      const player = (side: "challenger" | "defender") => rolls.find((r) => r.rollKind === "challenge" && r.side === side)!.player;
+      const succeeds = outcome === "challengeSucceeds";
+      return goes(player("challenger"), succeeds) ?? goes(player("defender"), !succeeds);
     };
     const pass = legal.find((a) => a.type === "PASS");
     if (favoursMe(window.rolls) !== false) return pass;
     const modifier = legal.find(
-      (a) => a.type === "PLAY_MODIFIER" && favoursMe(window.rolls.map((r) => (r.roll === a.roll ? { ...r, total: r.total + a.value } : r))) === true,
+      (a) => a.type === "PLAY_MODIFIER" && favoursMe(withModifier(window.rolls, a.roll!, a.value)) === true,
     );
     return modifier ?? pass;
   };

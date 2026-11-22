@@ -187,8 +187,14 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
     if (frame.rollKind === "heroEffect") events.push({ ...rolled, rollKind: "heroEffect", hero: { id: frame.hero, def: state.cards[frame.hero]! } });
     else events.push({ ...rolled, rollKind: "monsterAttack", monster: { id: frame.monster, def: state.cards[frame.monster]! } });
     frame.stage = "settle";
-    const needs = frame.rollKind === "heroEffect" ? heroDef(defs, state, frame.hero)!.rollRequirement : monsterDef(defs, state, frame.monster)!.slayAt;
-    pushModifierWindow(state, [{ roll: frame.rollId, player: frame.roller, total, rollKind: frame.rollKind, needs }]);
+    const at = { roll: frame.rollId, player: frame.roller, total };
+    if (frame.rollKind === "heroEffect") {
+      const needs = heroDef(defs, state, frame.hero)!.rollRequirement;
+      pushModifierWindow(state, [{ ...at, rollKind: "heroEffect", hero: { id: frame.hero, def: state.cards[frame.hero]! }, needs }]);
+    } else {
+      const { slayAt, defeatAt } = monsterDef(defs, state, frame.monster)!;
+      pushModifierWindow(state, [{ ...at, rollKind: "monsterAttack", monster: { id: frame.monster, def: state.cards[frame.monster]! }, needs: slayAt, defeatAt }]);
+    }
     return;
   }
   state.stack.pop();

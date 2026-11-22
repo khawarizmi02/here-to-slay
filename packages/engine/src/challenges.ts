@@ -1,4 +1,4 @@
-import { pushModifierWindow } from "./modifiers.js";
+import { challengeSucceeds, pushModifierWindow } from "./modifiers.js";
 import { fromPlayer, playerState } from "./players.js";
 import { pushTriggers } from "./stack.js";
 import type {
@@ -87,15 +87,15 @@ export function challengeDuelStep(state: GameState, duel: ChallengeDuelFrame, ev
   if (!duel.modified) {
     duel.modified = true;
     pushModifierWindow(state, [
-      { roll: duel.challengerRoll!, player: duel.challenger, total: duel.challengerTotal, rollKind: "challenge", side: "challenger" },
-      { roll: duel.defenderRoll!, player: duel.defender, total: duel.defenderTotal, rollKind: "challenge", side: "defender" },
+      { roll: duel.challengerRoll!, player: duel.challenger, total: duel.challengerTotal, rollKind: "challenge", side: "challenger", target: view(state, duel.target) },
+      { roll: duel.defenderRoll!, player: duel.defender, total: duel.defenderTotal, rollKind: "challenge", side: "defender", target: view(state, duel.target) },
     ]);
     return;
   }
   state.stack.pop();
   const play = state.stack.at(-1) as CardPlayFrame;
   const { challengerTotal, defenderTotal } = duel;
-  const succeeded = state.config.challengeTieWinner === "challenger" ? challengerTotal >= defenderTotal : challengerTotal > defenderTotal;
+  const succeeded = challengeSucceeds(state.config, challengerTotal, defenderTotal);
   events.push({
     type: "CHALLENGE_RESOLVED",
     challenger: duel.challenger,

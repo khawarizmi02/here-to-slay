@@ -105,6 +105,16 @@ describe("monster requirements", () => {
 });
 
 describe("attacking a monster", () => {
+  it("opens a Modifier Window that names the monster, its slay value and its defeat value", () => {
+    const e = engine();
+    const state = reveal(game(e), "monster_free#0");
+    const r = act(e, dice(state, 3, 3), { type: "ATTACK_MONSTER", player: "p1", monster: "monster_free#0" });
+    expect(e.getPlayerView(r.state, "p2").responseWindow).toMatchObject({
+      kind: "modifier",
+      rolls: [{ player: "p1", total: 6, rollKind: "monsterAttack", monster: { id: "monster_free#0", def: "monster_free" }, needs: 8, defeatAt: 4 }],
+    });
+  });
+
   it("slays the monster at or above its slay value, and fills its slot from the monster deck", () => {
     const e = engine();
     const state = reveal(game(e), "monster_free#0", "monster_pair#0", "monster_thief#0");

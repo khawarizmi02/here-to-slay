@@ -1,4 +1,4 @@
-import type { Action, BlockedAction, CardView as Card, GameEvent, PendingDecision, PlayerView } from "@here-to-slay/engine";
+import { rollOutcomes, withModifier, type Action, type BlockedAction, type CardView as Card, type GameEvent, type PendingDecision, type PlayerView, type RollOutcome, type WindowRoll } from "@here-to-slay/engine";
 import { motion } from "framer-motion";
 import { useEffect, useState, type ReactNode } from "react";
 import { Countdown } from "../shell/Countdown.js";
@@ -302,7 +302,7 @@ function ResponseBar({
     <>
       {window?.kind === "challenge" && <p className="window">A Challenge Window is open on {cardName(window.card)}</p>}
       {window?.kind === "modifier" && (
-        <p className="window">A Modifier Window is open on {window.rolls.map((r) => `${nameIn(view, r.player)}'s roll (${r.total})`).join(" and ")}</p>
+        <p className="window">{modifierWindowLine(view, window.rolls)}</p>
       )}
       {/* Names nobody: who is still awaited would hint at who holds a usable card. */}
       {window && view.me !== "spectator" && !window.awaiting.includes(view.me) && (
@@ -331,10 +331,49 @@ function responseLabel(action: Action, view: PlayerView, handCard: (id: string) 
     const name = cardName(handCard(action.card) ?? action.card);
     const value = action.value > 0 ? `+${action.value}` : String(action.value);
     const rolls = view.responseWindow?.kind === "modifier" ? view.responseWindow.rolls : [];
-    const roll = rolls.length > 1 ? rolls.find((r) => r.roll === action.roll) : undefined;
-    return `Play ${name} (${value})${roll ? ` on ${nameIn(view, roll.player)}'s roll` : ""}`;
+    const target = rolls.findIndex((r) => r.roll === action.roll);
+    if (target === -1) return `Play ${name} (${value})`;
+    const modified = withModifier(rolls, action.roll!, action.value);
+    const onWhose = rolls.length > 1 ? ` on ${nameIn(view, rolls[target]!.player)}'s roll` : "";
+    return `Play ${name} (${value})${onWhose} → ${modified[target]!.total} (${OUTCOME_WORDS[rollOutcomes(modified, view.config)[target]!]})`;
   }
   return action.type;
+}
+
+/** What a roll leads to, as a Modifier option says it. */
+const OUTCOME_WORDS: Record<RollOutcome, string> = {
+  succeeds: "succeeds",
+  fails: "fails",
+  slain: "slain",
+  nothing: "no effect",
+  defeated: "defeated",
+  challengeSucceeds: "Challenge succeeds",
+  challengeFails: "Challenge fails",
+};
+
+type ChallengeRoll = Extract<WindowRoll, { rollKind: "challenge" }>;
+
+/**
+ * What a Modifier Window's rolls are for: who rolls, for which card, the
+ * total so far and what it needs. A Challenge's two rolls make one line,
+ * with the side winning at those totals as the engine judges it.
+ */
+function modifierWindowLine(view: PlayerView, rolls: WindowRoll[]): string {
+  const name = (id: string) => nameIn(view, id);
+  const challenge = rolls.filter((r): r is ChallengeRoll => r.rollKind === "challenge");
+  const challenger = challenge.find((r) => r.side === "challenger");
+  const defender = challenge.find((r) => r.side === "defender");
+  if (challenger && defender) {
+    const winner = rollOutcomes(rolls, view.config)[0] === "challengeSucceeds" ? challenger : defender;
+    return `${name(challenger.player)} challenges ${name(defender.player)}'s ${cardName(challenger.target)}: ${challenger.total} vs ${defender.total}, ${name(winner.player)} is winning`;
+  }
+  return rolls
+    .map((r) => {
+      if (r.rollKind === "heroEffect") return `${name(r.player)} rolls for ${cardName(r.hero)}'s effect: ${r.total}, needs ${r.needs}+`;
+      if (r.rollKind === "monsterAttack") return `${name(r.player)} attacks ${cardName(r.monster)}: ${r.total}, slays on ${r.needs}+, defeated on ${r.defeatAt} or less`;
+      return `${name(r.player)}'s roll: ${r.total}`;
+    })
+    .join("; ");
 }
 
 function DecisionModal({
