@@ -9,3 +9,6 @@ playwright-report/
 # The private local card set: only its README is committed (issue #85).
 packages/cards/local/*
 !packages/cards/local/README.md
+
+# Print-and-play PDFs of the real cards (never commit)
+HTSpnp/
