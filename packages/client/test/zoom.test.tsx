@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GameState } from "@here-to-slay/engine";
-import { cardName } from "../src/board/cards.js";
+import { DEVICE_CARDS } from "../src/board/cards.js";
 import { ALICE_HERO, BOT_HERO, CHALLENGE, MAGIC, newGame as game, update, type GameSetup } from "./real-game.js";
 import { ALICE, BOT, renderInLobby } from "./render.js";
 
@@ -35,7 +35,7 @@ function busyGame() {
   alice!.slainMonsters.push(take(aliceSlain));
   bot!.party.push({ instanceId: take("hero_ranger_01#0"), equippedItem: take("item_02#0"), rolledThisTurn: false });
   state.discardPile.push(take(MAGIC));
-  return { state, aliceSlain: cardName(aliceSlain.split("#")[0]!) };
+  return { state, aliceSlain: DEVICE_CARDS.name(aliceSlain.split("#")[0]!) };
 }
 
 /** Renders the client as Seat `seat`, past the lobby, showing `state`. */

@@ -1,27 +1,15 @@
-import { chooseCardSet, type CardDef, type CardSet, type HeroClass } from "@here-to-slay/cards";
+import { chooseCardSet, loadCardDefs, type CardDef, type CardSet, type HeroClass } from "@here-to-slay/cards";
+import { createContext, useContext } from "react";
 import { describeRequirement, type CardView } from "@here-to-slay/engine";
 import { LOCAL_ART, LOCAL_CARD_FILES } from "./local-files.js";
 
 /**
- * The card set the Room plays with: the private local set in
+ * The card set this device plays with: the private local set in
  * `packages/cards/local/` when its files exist, the placeholder set
  * otherwise. A broken local set throws here, at startup, naming the card and
- * the field.
+ * the field. The Host's Room plays with it, and sends it to friends.
  */
 export const CARD_SET: CardSet = chooseCardSet(LOCAL_CARD_FILES);
-
-/**
- * The cards of that set. The board looks up names and text here; it never
- * reads rules from them. The composition root builds the Room's engine from
- * the same set.
- */
-export const CARD_DEFS: readonly CardDef[] = CARD_SET.defs;
-
-const BY_ID: ReadonlyMap<string, CardDef> = new Map(CARD_DEFS.map((d) => [d.id, d]));
-
-export function cardDef(card: CardView | string): CardDef | undefined {
-  return BY_ID.get(typeof card === "string" ? card : card.def);
-}
 
 /** Each local art file's URL, by file name. */
 const ART_BY_FILE: ReadonlyMap<string, string> = new Map(
@@ -29,17 +17,55 @@ const ART_BY_FILE: ReadonlyMap<string, string> = new Map(
 );
 
 /**
- * The URL of a card's art (§12.4): the file its `art` field names in
- * `packages/cards/local/art/`. None when the card names no art or its file
- * isn't there, and the card is drawn with HTML alone.
+ * The cards of one Room's Card Set, as the board looks them up: names, text
+ * and art. The board never reads rules from them.
  */
-export function cardArt(card: CardView | string): string | undefined {
-  const art = cardDef(card)?.art;
-  return art === undefined ? undefined : ART_BY_FILE.get(art);
+export class CardLookup {
+  readonly #byId: ReadonlyMap<string, CardDef>;
+
+  constructor(
+    defs: readonly CardDef[],
+    /** Each art file's URL, by file name. */
+    readonly artByFile: ReadonlyMap<string, string> = new Map(),
+  ) {
+    this.#byId = new Map(defs.map((d) => [d.id, d]));
+  }
+
+  def(card: CardView | string): CardDef | undefined {
+    return this.#byId.get(typeof card === "string" ? card : card.def);
+  }
+
+  name(card: CardView | string): string {
+    return this.def(card)?.name ?? (typeof card === "string" ? card : card.def);
+  }
+
+  /**
+   * The URL of a card's art (§12.4): the file its `art` field names in
+   * `packages/cards/local/art/`. None when the card names no art or its file
+   * isn't there, and the card is drawn with HTML alone.
+   */
+  art(card: CardView | string): string | undefined {
+    const art = this.def(card)?.art;
+    return art === undefined ? undefined : this.artByFile.get(art);
+  }
 }
 
-export function cardName(card: CardView | string): string {
-  return cardDef(card)?.name ?? (typeof card === "string" ? card : card.def);
+/** This device's own cards, with its local art: what the Host, its local Seats and a replay draw. */
+export const DEVICE_CARDS = new CardLookup(CARD_SET.defs, ART_BY_FILE);
+
+/**
+ * The Host's Card Set as a friend received it (ADR-0005), validated like
+ * local card files. It has no art. Throws a CardLoadError when the cards are invalid.
+ */
+export function receivedCards(cards: unknown): CardLookup {
+  return new CardLookup(loadCardDefs(cards));
+}
+
+/** The cards the board on screen draws: the device's own unless a friend's Room says otherwise. */
+export const CardsContext = createContext<CardLookup>(DEVICE_CARDS);
+
+export function useCards(): CardLookup {
+  return useContext(CardsContext);
 }
 
 export const CLASS_LABELS: Record<HeroClass, string> = {

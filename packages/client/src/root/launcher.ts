@@ -14,14 +14,14 @@ import {
   type RoomEngine,
 } from "@here-to-slay/room";
 import { botFactory, createRoomEngine, type GameState } from "@here-to-slay/engine";
-import { CARD_DEFS } from "../board/cards.js";
+import { CARD_SET } from "../board/cards.js";
 import { RoomClosedError, type LaunchedRoom, type LaunchedSeat, type Launcher } from "../shell/game.js";
 import { stayAttached, stayJoined } from "./reconnect.js";
 import { heldSubscribers } from "./subscribers.js";
 import { browserDialer, createRelayRoom, hostSocket, rejoiningDialer, type RelayRoom } from "./relay.js";
 
 /** The rules engine, with the card set the board shows. */
-const engine: RoomEngine<GameState> = createRoomEngine(CARD_DEFS);
+const engine: RoomEngine<GameState> = createRoomEngine(CARD_SET.defs);
 
 /** The engine as a replay shows it: the board offers no actions, since nobody can take one. */
 const replayEngine: RoomEngine<GameState> = {
@@ -51,7 +51,9 @@ export function browserLauncher(relayUrl: string, random: () => number): Launche
     clock: { now: () => Date.now() },
     random,
     // Every bot Seat, and every friend's Seat a bot takes over, is an easy bot until the normal bot exists.
-    bot: botFactory(CARD_DEFS, random),
+    bot: botFactory(CARD_SET.defs, random),
+    // Sent to every friend, whichever set this is; the Room leaves out the art (ADR-0005).
+    cardSet: { name: CARD_SET.label, cards: CARD_SET.defs },
     // The DOM types its handlers as taking an event, which the store's handlers ignore.
     store: new IndexedDbActionLogStore(indexedDB as unknown as IdbFactoryLike),
   };

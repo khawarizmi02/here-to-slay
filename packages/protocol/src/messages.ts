@@ -75,6 +75,17 @@ export const RoomMsgSchema = z.discriminatedUnion("t", [
     /** The recipient's Seat. Each connection belongs to one Seat, so a hot-seat device holds one connection per local Seat. */
     you: z.array(SeatIdSchema),
   }),
+  /**
+   * To a remote Seat: the Host's Card Set, sent before its first `lobby` or
+   * `update` and again on every reconnect (ADR-0005). The friend's client
+   * draws every card from it. The cards carry no `art`; the client validates them.
+   */
+  z.strictObject({
+    t: z.literal("cardSet"),
+    /** The lobby's name for it: "Local cards" or "Placeholder cards". */
+    name: z.string().min(1).max(64),
+    cards: z.array(z.unknown()).max(2_000),
+  }),
   z.strictObject({
     t: z.literal("update"),
     /** Incremented on every state change; `events` describe `version - 1` → `version`. */

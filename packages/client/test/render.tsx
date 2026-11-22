@@ -1,4 +1,5 @@
-import type { LobbySeat } from "@here-to-slay/protocol";
+import { placeholderCardDefs } from "@here-to-slay/cards";
+import type { LobbySeat, RoomMsg } from "@here-to-slay/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect } from "vitest";
@@ -100,6 +101,9 @@ export function renderClient({
     },
   };
 }
+
+/** The Host's Card Set as the Room sends it to every friend before anything else: here, the placeholder cards. */
+export const HOST_CARD_SET: Extract<RoomMsg, { t: "cardSet" }> = { t: "cardSet", name: "Placeholder cards", cards: [...placeholderCardDefs] };
 
 export const ALICE: LobbySeat = { id: "s1", name: "Alice", kind: "local", connected: true };
 export const BOT: LobbySeat = { id: "s2", name: "Bot 1", kind: "bot", connected: true };

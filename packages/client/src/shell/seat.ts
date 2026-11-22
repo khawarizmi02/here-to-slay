@@ -1,6 +1,6 @@
 import type { Action, ClientMsg, ConfigPatch, GameEvent, LobbySeat, PlayerViewPayload, RoomMsg, SeatId } from "@here-to-slay/protocol";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { LaunchedSeat } from "./game.js";
+import type { GameLayer, LaunchedSeat, LoadedCards } from "./game.js";
 import { createPlayback } from "./playback.js";
 
 /** What one Seat on this device knows, built only from the messages its connection receives. */
@@ -23,6 +23,10 @@ export interface SeatState {
   error: string | null;
   /** Whether the relay says the Host is away: nothing happens until it is back. */
   hostAway: boolean;
+  /** For a friend's Seat: the Host's Card Set, once it has arrived and passed validation. */
+  cardSet: { name: string; cards: LoadedCards } | null;
+  /** For a friend's Seat: the Host's Card Set arrived but failed validation, so the game can't be shown. */
+  cardSetFailed: boolean;
 }
 
 /** What the device hears from one of its Seats. */
@@ -62,10 +66,10 @@ export interface DeviceSeat {
   close(): void;
 }
 
-/** Wraps one local Seat's connection. `viewer` names the Seat a view belongs to. */
+/** Wraps one local Seat's connection. The game layer names the Seat a view belongs to, and validates a received Card Set. */
 export function connectSeat(
   { connection, name, host = false, seatId, remote = false }: LaunchedSeat,
-  viewer: (view: PlayerViewPayload) => SeatId | null,
+  { viewer, loadCardSet }: Pick<GameLayer, "viewer" | "loadCardSet">,
 ): DeviceSeat {
   const store = createStore<SeatState>()(() => ({
     seatId: seatId ?? null,
@@ -77,6 +81,8 @@ export function connectSeat(
     deadline: null,
     error: null,
     hostAway: false,
+    cardSet: null,
+    cardSetFailed: false,
   }));
   const playback = createPlayback((shown) => store.setState(shown), () => store.getState());
   let clientSeq = 0;
@@ -93,6 +99,15 @@ export function connectSeat(
 
   function handle(msg: RoomMsg, listener: SeatListener): void {
     switch (msg.t) {
+      case "cardSet":
+        // Never falls back to the device's own cards: that would quietly show the wrong card text.
+        try {
+          store.setState({ cardSet: { name: msg.name, cards: loadCardSet(msg.cards) }, cardSetFailed: false });
+        } catch (e) {
+          console.error("Couldn't load the Host's cards", e);
+          store.setState({ cardSet: null, cardSetFailed: true });
+        }
+        return;
       case "lobby":
         store.setState({ seatId: msg.you[0] ?? null, lobby: msg.seats, error: null });
         return;

@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ALICE_HERO, CHALLENGE, newGame, play, update } from "./real-game.js";
-import { ALICE, BOT, renderClient, renderInLobby } from "./render.js";
+import { ALICE, BOT, HOST_CARD_SET, renderClient, renderInLobby } from "./render.js";
 
 afterEach(cleanup);
 
@@ -66,6 +66,7 @@ describe("the rules reference", () => {
     await user.type(screen.getByLabelText("Room Code"), "HJK23");
     await user.click(screen.getByRole("button", { name: "Join with a Room Code" }));
     connection.receive(
+      HOST_CARD_SET,
       { t: "lobby", roomCode: "HJK23", seats: [ALICE, { id: "s2", name: "Bob", kind: "remote", connected: true }], you: ["s2"] },
       update(play(state, { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }), "s2", 2),
       { t: "countdown", seat: "s2", ms: 15_000 },
