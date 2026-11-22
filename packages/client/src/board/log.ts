@@ -5,9 +5,14 @@ export function nameIn(view: PlayerView, id: string): string {
   return view.players.find((p) => p.id === id)?.name ?? id;
 }
 
+/** A player as the Seat reading `view` calls them: "You" for itself, otherwise by name. */
+export function whoIn(view: PlayerView, id: string): string {
+  return id === view.me ? "You" : nameIn(view, id);
+}
+
 /** The log line for `event`, in the words of the Seat reading it, or null for one the board already shows. */
 export function logLine(event: GameEvent, view: PlayerView): string | null {
-  const who = (id: string) => (id === view.me ? "You" : nameIn(view, id));
+  const who = (id: string) => whoIn(view, id);
   const whose = (id: string) => (id === view.me ? "your" : `${nameIn(view, id)}'s`);
   const plus = (n: number) => (n > 0 ? `+${n}` : String(n));
   switch (event.type) {

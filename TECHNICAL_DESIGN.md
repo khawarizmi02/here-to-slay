@@ -1089,6 +1089,7 @@ Decisions: target the player closest to winning. When a Decision gives up its ow
  └ <GameScreen>
     ├ <OpponentArea/> ×N
     ├ <CenterArea>  <MonsterRow/> <DeckPile/> <DiscardPile/> <DiceTray/>
+    ├ <Spotlight/>            the latest play or roll's card, face-up and zoomable, and whose it is
     ├ <ResponseBar/>          challenge/modifier window + countdown
     ├ <DecisionModal/>        renders pendingDecision
     ├ <PlayerArea>  <Party/> <ActionBar/> <Hand/>
