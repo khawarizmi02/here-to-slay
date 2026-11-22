@@ -4,8 +4,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Countdown } from "../shell/Countdown.js";
 import type { GameProps } from "../shell/game.js";
 import { cardDef, cardName, cardSubtitle } from "./cards.js";
-import { logLine, nameIn } from "./log.js";
+import { logLine, nameIn, whoIn } from "./log.js";
 import { RulesReference } from "./rules.js";
+import { spotlight } from "./spotlight.js";
 import { ZoomProvider, useZoomable } from "./zoom.js";
 
 type Player = PlayerView["players"][number];
@@ -87,6 +88,8 @@ export function Board({ view: payload, log, playing, responseOptions, deadline, 
             <DiceTray view={view} />
           </div>
         </section>
+
+        <SpotlightArea view={view} events={events} />
 
         {playing && (
           <section aria-label="Now playing" className="now-playing">
@@ -214,6 +217,21 @@ function MonsterRow({ view, control, act }: { view: PlayerView; control: Control
           </ControlButton>
         </CardView>
       ))}
+    </section>
+  );
+}
+
+/** The Spotlight: the card the latest play or roll is about, face-up and zoomable, and whose it is. */
+function SpotlightArea({ view, events }: { view: PlayerView; events: GameEvent[] }) {
+  const shown = spotlight(events, view);
+  if (!shown) return null;
+  return (
+    <section aria-label="Spotlight" className="spotlight">
+      <p>
+        {whoIn(view, shown.player)} {shown.did}
+      </p>
+      {/* Keyed by the card, so a zoom on the one before closes when the next replaces it. */}
+      <CardView key={shown.card.id} card={shown.card} />
     </section>
   );
 }

@@ -96,6 +96,19 @@ button {
   background: color-mix(in srgb, #d4a017 15%, Canvas);
 }
 
+/* The card the latest play or roll is about, and whose it is. */
+.spotlight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.spotlight p {
+  margin: 0;
+  font-weight: bold;
+}
+
 .countdown-bar,
 .waiting-responses {
   margin: 8px auto;
