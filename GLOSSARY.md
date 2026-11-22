@@ -16,6 +16,10 @@ _Avoid_: Interrupt, prompt (a Response Window is not a Decision)
 The random 0.5–2.5 s that a pass in a Response Window waits before it lands, so its timing doesn't show whether the Seat held a usable card. It covers a remote Seat's pass, a bot's response, and a local Seat's pass (automatic or chosen), but only while the Room has a remote Seat. A pass made before the delay is up waits until it is. Rooms with only local Seats and bots have no Response Delay.
 _Avoid_: Bot delay, response timer (the countdown a Seat with a usable card sees is separate)
 
+**Spotlight**:
+The card the latest play or roll is about, shown face-up to every player with who it belongs to, until the next play or roll replaces it. For a card played from a hand (Hero, Item, Magic, Modifier, Challenge) it is that card; for an attack it is the monster; for a hero's ability roll it is that hero.
+_Avoid_: Now playing (the brief line shown while an event animates), card in limbo (a card waiting in its Challenge Window), played card
+
 ## Multiplayer
 
 **Room**:
