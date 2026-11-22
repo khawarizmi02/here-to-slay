@@ -26,6 +26,7 @@ const SETTINGS: { [K in keyof RuleConfig]: { label: string; value(v: RuleConfig[
     value: (v) => (v === "roll" ? "Highest roll" : v === "random" ? "Chosen at random" : "The Host"),
   },
   responseWindowMs: { label: "Time to respond online", value: (ms) => `${ms / 1000} seconds` },
+  decisionWindowMs: { label: "Time to make a choice online", value: (ms) => `${ms / 1000} seconds` },
   reshuffleDiscardWhenDeckEmpty: { label: "Reshuffle the discard pile when the deck runs out", value: onOff },
 };
 

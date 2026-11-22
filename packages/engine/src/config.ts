@@ -25,6 +25,8 @@ export const RuleConfigSchema = z.strictObject({
   firstPlayerMethod: z.enum(["roll", "random", "firstSeat"]),
   /** A Room setting (remote Seats only); the engine accepts it but never reads it. */
   responseWindowMs: count(1),
+  /** A Room setting (remote Seats only); the engine accepts it but never reads it. */
+  decisionWindowMs: count(1),
   reshuffleDiscardWhenDeckEmpty: z.boolean(),
 });
 export type RuleConfig = z.infer<typeof RuleConfigSchema>;
@@ -47,6 +49,7 @@ export const DEFAULT_CONFIG: RuleConfig = {
   leaderSelection: "random",
   firstPlayerMethod: "roll",
   responseWindowMs: 8000,
+  decisionWindowMs: 30000,
   reshuffleDiscardWhenDeckEmpty: true,
 };
 

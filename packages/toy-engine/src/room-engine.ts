@@ -12,8 +12,8 @@ export const toyRoomEngine = {
   createGame({ players, seed, config }: { players: { id: PlayerId; name: string; isBot: boolean }[]; seed: string; config: ConfigPatch }): GameState {
     const parsed: Partial<ToyConfig> = {};
     for (const [key, value] of Object.entries(config)) {
-      // A Room setting, not a rule the toy engine knows.
-      if (key === "responseWindowMs") continue;
+      // Room settings, not rules the toy engine knows.
+      if (key === "responseWindowMs" || key === "decisionWindowMs") continue;
       if (key !== "targetScore" && key !== "handSize") throw new Error(`Unknown config flag ${key}`);
       if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
         throw new Error(`${key} must be a positive integer`);

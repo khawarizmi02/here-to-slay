@@ -72,6 +72,9 @@ export interface Timers {
 /** How long a remote Seat with a usable card has to respond, unless the config's `responseWindowMs` says otherwise. */
 export const DEFAULT_RESPONSE_WINDOW_MS = 8_000;
 
+/** How long a remote Seat has to answer a Decision, unless the config's `decisionWindowMs` says otherwise. Longer than a Response Window: a Decision often means reading a card. */
+export const DEFAULT_DECISION_WINDOW_MS = 30_000;
+
 /**
  * The Response Delay: a remote Seat's pass never takes effect sooner than a
  * random delay in this range after it is asked, whether the Seat passes
@@ -822,7 +825,7 @@ export class Room<State> {
         if (ask && ask.kind !== kind) this.#endAsk(ask, "The response window has closed");
         if (!kind || this.#asks.has(seat)) continue;
         if (kind === "decide") {
-          this.#asks.set(seat, { seat, kind, holdUntil: now, deadline: now + this.#responseWindowMs(game), countdown: true, heldPass: null });
+          this.#asks.set(seat, { seat, kind, holdUntil: now, deadline: now + this.#decisionWindowMs(game), countdown: true, heldPass: null });
           continue;
         }
         const holdUntil = now + this.#responseDelay();
@@ -868,8 +871,11 @@ export class Room<State> {
   }
 
   #responseWindowMs(game: Game<State>): number {
-    const ms = game.config.responseWindowMs;
-    return typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_RESPONSE_WINDOW_MS;
+    return windowMs(game.config.responseWindowMs, DEFAULT_RESPONSE_WINDOW_MS);
+  }
+
+  #decisionWindowMs(game: Game<State>): number {
+    return windowMs(game.config.decisionWindowMs, DEFAULT_DECISION_WINDOW_MS);
   }
 
   /**
@@ -1271,4 +1277,9 @@ function canonical(value: unknown): string {
 
 function copy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** A config timer in milliseconds, or `fallback` when it is missing or invalid (older saved Rooms have neither timer). */
+function windowMs(ms: unknown, fallback: number): number {
+  return typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : fallback;
 }

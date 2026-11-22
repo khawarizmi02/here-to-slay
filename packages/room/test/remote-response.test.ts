@@ -1,7 +1,7 @@
 import type { RoomMsg } from "@here-to-slay/protocol";
 import type * as toy from "@here-to-slay/toy-engine";
 import { describe, expect, it } from "vitest";
-import { MemoryActionLogStore, Room, type Bot, type RoomEngine } from "../src/index.js";
+import { DEFAULT_DECISION_WINDOW_MS, MemoryActionLogStore, Room, type Bot, type RoomEngine } from "../src/index.js";
 import { settle } from "./fake-relay.js";
 import { Client, FakeClock, FakeTimers, fixedDeck, viewOf } from "./harness.js";
 import { online, player } from "./online.js";
@@ -121,7 +121,7 @@ describe("timers for remote Seats", () => {
     // Alice holds nothing to answer it with: she is passed for after her Response Delay.
     await game.wait(1_500);
     expect(game.view().pendingDecision).toEqual({ player: game.seat("Bob") });
-    await game.wait(7_999);
+    await game.wait(29_999);
     expect(game.view().phase).toBe("decision");
     await game.wait(1);
     expect(game.view().players[1]!.score).toBe(2);
@@ -151,7 +151,7 @@ describe("timers for remote Seats", () => {
     await game.act("Bob", { type: "PLAY_HERO", card: "wish#0" });
     // Alice is passed for after her Response Delay (2,300 ms); then Bob's decision times out.
     await game.wait(2_300);
-    await game.wait(8_000);
+    await game.wait(30_000);
     await game.room.whenSaved();
     expect((await store.load(game.roomCode))!.actions.at(-1)).toEqual({
       type: "RESOLVE_DECISION",
@@ -189,6 +189,39 @@ describe("timers for remote Seats", () => {
     clock.advance(1);
     timers.fireDue();
     expect(viewOf(host.last("update")).players[0]!.score).toBe(2);
+  });
+
+  it("gives a remote Seat 30 seconds for a Decision, not the 8 seconds of a Response Window", async () => {
+    // Alice: point_1, point_1. Bob: wish, point_1.
+    const deck: toy.ToyCardDefId[] = ["point_1", "point_1", "wish", "point_1", "point_1", "point_1", "point_1", "point_1"];
+    const game = await online({ seats: ["Bob"], deck });
+    await game.act("Alice", { type: "DRAW_CARD" });
+    await game.act("Bob", { type: "PLAY_HERO", card: "wish#0" });
+    // Alice holds nothing to answer the wish with: she is passed for after her Response Delay.
+    await game.wait(2_500);
+    expect(game.view().pendingDecision).toEqual({ player: game.seat("Bob") });
+    expect(game.client("Bob").last("countdown")).toEqual({ t: "countdown", seat: "s2", ms: DEFAULT_DECISION_WINDOW_MS });
+    expect(DEFAULT_DECISION_WINDOW_MS).toBe(30_000);
+
+    await game.wait(DEFAULT_DECISION_WINDOW_MS - 1);
+    expect(game.view().phase).toBe("decision");
+    await game.wait(1);
+    expect(game.view().phase).not.toBe("decision");
+  });
+
+  it("uses the config's decisionWindowMs, and the default when it is missing or invalid", async () => {
+    const deck: toy.ToyCardDefId[] = ["point_1", "point_1", "wish", "point_1", "point_1", "point_1", "point_1", "point_1"];
+    const countdownFor = async (config: Record<string, unknown>) => {
+      const game = await online({ seats: ["Bob"], deck, config: config as never });
+      await game.act("Alice", { type: "DRAW_CARD" });
+      await game.act("Bob", { type: "PLAY_HERO", card: "wish#0" });
+      await game.wait(2_500);
+      return game.client("Bob").last("countdown").ms;
+    };
+    expect(await countdownFor({ decisionWindowMs: 12_000 })).toBe(12_000);
+    expect(await countdownFor({ decisionWindowMs: -1 })).toBe(DEFAULT_DECISION_WINDOW_MS);
+    // A Response Window setting doesn't change the Decision window.
+    expect(await countdownFor({ responseWindowMs: 5_000 })).toBe(DEFAULT_DECISION_WINDOW_MS);
   });
 
   it("sends a countdown only to a remote Seat with a usable card, again after every update while it stands", async () => {
