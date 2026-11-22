@@ -11,6 +11,7 @@ export function Lobby({
   seats,
   roomCode,
   host,
+  cardSetLabel,
   Rules,
   onSetConfig,
   onAddPlayer,
@@ -20,6 +21,8 @@ export function Lobby({
   seats: LobbySeat[];
   roomCode: string | null;
   host: boolean;
+  /** The game layer's name for the card set in play. */
+  cardSetLabel: string;
   Rules: ComponentType<RulesProps>;
   onSetConfig: RulesProps["setConfig"];
   onAddPlayer: (name: string) => void;
@@ -39,6 +42,7 @@ export function Lobby({
   return (
     <main className="lobby">
       <h2>Lobby</h2>
+      <p className="card-set">{cardSetLabel}</p>
       {roomCode && (
         <p>
           Room Code <strong className="room-code">{roomCode}</strong>

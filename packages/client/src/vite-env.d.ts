@@ -9,4 +9,6 @@ interface ImportMetaEnv {
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;
+  /** Vite's glob import: each matching file's default export, by path. Matches nothing when no file does. */
+  glob(pattern: string, options: { eager: true; import: "default" }): Record<string, unknown>;
 }

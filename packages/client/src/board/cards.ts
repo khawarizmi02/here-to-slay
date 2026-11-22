@@ -1,12 +1,22 @@
-import { placeholderCardDefs, type CardDef, type HeroClass } from "@here-to-slay/cards";
+import { chooseCardSet, type CardDef, type CardSet, type HeroClass } from "@here-to-slay/cards";
 import { describeRequirement, type CardView } from "@here-to-slay/engine";
 
 /**
- * The card set the Room plays with. The board looks up names and text here;
- * it never reads rules from them. The composition root builds the Room's
- * engine from the same set.
+ * The card set the Room plays with: the private local set in
+ * `packages/cards/local/` when its files exist, the placeholder set
+ * otherwise. A broken local set throws here, at startup, naming the card and
+ * the field. The glob finds nothing in a fresh clone.
  */
-export const CARD_DEFS: readonly CardDef[] = placeholderCardDefs;
+export const CARD_SET: CardSet = chooseCardSet(
+  import.meta.glob("../../../cards/local/*.json", { eager: true, import: "default" }),
+);
+
+/**
+ * The cards of that set. The board looks up names and text here; it never
+ * reads rules from them. The composition root builds the Room's engine from
+ * the same set.
+ */
+export const CARD_DEFS: readonly CardDef[] = CARD_SET.defs;
 
 const BY_ID: ReadonlyMap<string, CardDef> = new Map(CARD_DEFS.map((d) => [d.id, d]));
 

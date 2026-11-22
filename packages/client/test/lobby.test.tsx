@@ -1,5 +1,6 @@
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { CARD_SET } from "../src/board/cards.js";
 import { FakeConnection } from "./fake-connection.js";
 import { ALICE, BOT, connected, fakeRoom, renderClient, renderInLobby } from "./render.js";
 
@@ -39,6 +40,12 @@ describe("the lobby", () => {
     await user.click(screen.getByRole("button", { name: "Add a bot" }));
     await user.click(screen.getByRole("button", { name: "Start game" }));
     expect(connection.takeSent()).toEqual([{ t: "addBot", difficulty: "easy" }, { t: "startGame" }]);
+  });
+
+  it("says which card set is in use", async () => {
+    await renderInLobby();
+    // The card set test covers which set and label are chosen; this checks the lobby shows it.
+    expect(screen.getByText(CARD_SET.label)).toBeInTheDocument();
   });
 
   it("shows no Room Code for a game on this device", async () => {

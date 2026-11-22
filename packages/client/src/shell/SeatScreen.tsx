@@ -91,6 +91,7 @@ export function SeatScreen({
               seats={lobby}
               roomCode={device.roomCode}
               host={seat.host}
+              cardSetLabel={game.cardSetLabel}
               Rules={game.Rules}
               onSetConfig={seat.setConfig}
               onAddPlayer={seat.addLocalSeat}

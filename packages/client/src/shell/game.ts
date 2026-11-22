@@ -49,6 +49,8 @@ export interface RulesProps {
 /** Everything the shell needs from the layer that knows the engine. */
 export interface GameLayer {
   Board: GameComponent;
+  /** The name of the card set this device plays with, shown in the lobby: "Placeholder cards" or "Local cards". */
+  cardSetLabel: string;
   /** The Host's rules form for the lobby. */
   Rules: ComponentType<RulesProps>;
   /** The rules reference, shown over the first screen with the default rules. The board opens its own, with the game's. */
