@@ -220,6 +220,7 @@ export interface RuleConfig {
   leaderSelection: "random" | "draft"; // "random"
   firstPlayerMethod: "roll" | "random" | "firstSeat"; // "roll"
   responseWindowMs: number;            // 8000 (remote Seats only; local Seats have no countdown)
+  decisionWindowMs: number;            // 30000 (remote Seats only: time to answer a Decision; longer, because a Decision often means reading a card) (#102)
   reshuffleDiscardWhenDeckEmpty: boolean; // true
 }
 ```
@@ -778,7 +779,7 @@ Modes, set by the user:
 - **Everyone gets asked every time, with a timer.** This hides information but is slower.
 
 The rule is chosen **per Seat**, because one Room can mix Seat types:
-- **Remote Seat:** always asked. If the player holds no usable card, the Room auto-passes for them after a short, **randomised** delay of 0.5–2.5 seconds so that timing reveals nothing. Players who do hold a usable card get a countdown. ⚙️ `responseWindowMs`
+- **Remote Seat:** always asked. If the player holds no usable card, the Room auto-passes for them after a short, **randomised** delay of 0.5–2.5 seconds so that timing reveals nothing. Players who do hold a usable card get a countdown. ⚙️ `responseWindowMs`. A remote Seat with a Decision to answer gets a longer countdown, because a Decision often means reading a card. ⚙️ `decisionWindowMs` (#102)
 - **Local Seat** (on the Host's device): only interrupted if they hold a usable card. The Room shows a "Pass the device to P3" screen with **no countdown** until P3 confirms. Players at a shared table already see who reaches for the device, but remote friends don't: so whenever a remote Seat is in the Room, the Room's automatic pass for a local Seat holding no usable card is held back by the same randomised delay as a remote Seat's. A local Seat that thinks for longer than the delay still stands out, exactly as a remote Seat does; the delay makes local Seats leak no more than remote ones, not nothing. The same floor holds for a local Seat that does hold a usable card: a pass it makes before its delay is up waits until the delay is up, as a remote Seat's early pass does, so a quick tap doesn't stand out either. It still gets no countdown and no timeout. A held local pass counts as answered on the shared device: that Seat's prompt closes at once and the next local Seat with a usable card is asked straight away, while the pass itself lands when the delay is up. If a response reopens the window first, the held pass is dropped and the Seat is asked again. A held pass is not saved (only applied actions are logged), so if the Host refreshes before it lands, the restored Room asks that Seat again, as it does a remote Seat. There is no setting to turn it off. (#25)
 - **Bot Seat:** decides immediately, but its response is held back by the same randomised delay whenever a remote Seat is in the Room.
 - "A remote Seat is in the Room" means any remote Seat, connected or not, including one a bot is playing for a friend who left. Bots and local Seats follow the same rule.
@@ -948,7 +949,7 @@ type RoomMsg =
 
 **Response prompts for local Seats.** The Room passes, with an ordinary logged `PASS`, for a local Seat that is asked to respond but holds no usable card. It asks the others one at a time, in turn order after the active player: first `passDevice`, then, after `confirmPassDevice`, `respond` with the Seat's options. It rejects a local Seat's response before then. While a prompt stands, the Room sends it again after every `update`, so a UI knows a prompt is current if one follows the latest update.
 
-**Response windows for remote Seats.** A remote Seat is always asked; it reads its options from its view and answers with `action`. A pass, whether the friend sends it or the Room makes it for a Seat that holds no usable card, takes effect no sooner than the Seat's random 0.5–2.5 s delay, so other players can't tell the two apart. A Seat with a usable card, or with a decision to answer, gets `countdown` with the milliseconds left, again after every update while it stands. When it runs out, the Room applies the default action (Section 10.6). A pass still waiting when another response reopens the window is answered with `actionRejected`, and the Seat is asked afresh.
+**Response windows for remote Seats.** A remote Seat is always asked; it reads its options from its view and answers with `action`. A pass, whether the friend sends it or the Room makes it for a Seat that holds no usable card, takes effect no sooner than the Seat's random 0.5–2.5 s delay, so other players can't tell the two apart. A Seat with a usable card, or with a decision to answer, gets `countdown` with the milliseconds left, again after every update while it stands: `responseWindowMs` for a response window, `decisionWindowMs` for a decision. When it runs out, the Room applies the default action (Section 10.6). A pass still waiting when another response reopens the window is answered with `actionRejected`, and the Seat is asked afresh.
 
 **Identity.** The Room ignores any identity claim in a remote message. It uses the `from` token the relay stamps on the message (Section 10.5) to find that player's Seat, sets `action.player` from that Seat, and rejects an action whose `seat` isn't owned by that token. A `local` Seat's actions come from `LocalConnection`, and the UI picks the Seat according to whose turn it is or whose prompt is showing.
 
@@ -986,7 +987,7 @@ Rules:
 
 ### 10.6 Timers
 
-- Response windows and decisions have timeouts, but only for remote Seats (Section 7.4). On timeout, the Room creates a normal `PASS` or `RESOLVE_DECISION` action (the first legal option, or a random one for discards) and applies it like any other action. **Every timeout is recorded in the action log**, so a replay takes exactly the same path.
+- Response windows and decisions have timeouts, but only for remote Seats (Section 7.4): `responseWindowMs` (8 s) for a response window and `decisionWindowMs` (30 s) for a decision. A missing or invalid value falls back to its default, so older saved Rooms still load. On timeout, the Room creates a normal `PASS` or `RESOLVE_DECISION` action (the first legal option, or a random one for discards) and applies it like any other action. **Every timeout is recorded in the action log**, so a replay takes exactly the same path.
 - Timers live in the Room, never in the engine. The engine stays free of `Date.now()`.
 - Each timer is stored as a **deadline timestamp**. The Room checks for expired deadlines on every incoming message, on the relay's 1-second `tick`, on its own `setTimeout`, and on `visibilitychange` (the Host's UI calls `room.checkDeadlines()`). Browsers slow down `setTimeout` in background tabs; the relay's ticks keep deadlines on time even then.
 - The Host's UI shows a "Keep this tab open: you are hosting" notice.

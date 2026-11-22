@@ -41,6 +41,10 @@ describe("createGame config", () => {
     expect(() => start({ firstPlayerMethod: "firstSeat", responseWindowMs: 5000 })).not.toThrow();
   });
 
+  it("accepts the Room's decisionWindowMs", () => {
+    expect(() => start({ firstPlayerMethod: "firstSeat", decisionWindowMs: 20000 })).not.toThrow();
+  });
+
   it("throws a clear error on an unknown key", () => {
     expect(() => start({ firstPlayerMethod: "firstSeat", handSize: 5 })).toThrow(/Invalid config: unknown key "handSize"/);
   });
