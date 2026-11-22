@@ -679,7 +679,7 @@ export interface PendingDecision {
 - An option's id is the id of the thing chosen (a player id or card instance id). Options only ever list things the chooser can see.
 - A "you may" Decision has an explicit Decline option.
 - **Option order is a rule**, because the Room answers a timed-out remote Seat's Decision with the first legal answer, or a random one when `isDiscardDecision` is true. Decline comes first in every "you may" Decision. Other options are listed players in turn order, then cards by instance id. `isDiscardDecision` is true for any pick that gives up the chooser's own card (discard, hand-limit discard, sacrifice).
-- If exactly one legal option exists, auto-resolve it. Make this a user setting; it's on by default for bots.
+- If exactly one legal option exists, auto-resolve it, for every Seat. It is not a setting: together with local Seats auto-passing Response Windows they hold nothing for (§7.4), this covers what an "auto-resolve" setting would do (#75).
 - If no legal options exist, skip the step. For example, "steal a hero" when nobody has heroes does nothing.
 
 ### 6.5 Effect interpreter
@@ -1185,8 +1185,9 @@ expect(r.state.players[0].party).toHaveLength(2);
 - The all-bot games run through the Room, each capped at 10,000 actions with PASSes not counted, as in §13.1: easy bots sometimes stalemate, and over 1,000 games the longest takes over 5,000. `pnpm test` plays 100 of them; `pnpm bot-games` plays all 1,000.
 
 **M7: Polish**
-- Animations, sounds, card zoom, rules reference screen, settings (animation speed, auto-resolve), replay export and import.
+- Animations, sounds, card zoom, rules reference screen, settings (animation speed, sound), replay export and import. Auto-resolve is built in, not a setting (§6.4).
 - ✅ A playtest with friends produces no blocking confusion.
+- No friends were available, so the playtest (#84) was two solo Hot-Seat games against bots and one online game with Claude as the remote Seat, both clients on one machine. Its blocking confusions (#95, #96, #102) are fixed. Real network latency and reconnects between machines were not part of it.
 
 **M8 (optional): Real card data and art**
 - The owner enters real card data from their physical copy. Card art stays local and private.
