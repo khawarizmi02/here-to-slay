@@ -1,6 +1,6 @@
 import { cleanup, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { GameState } from "@here-to-slay/engine";
+import type { GameState, ModifierWindowFrame } from "@here-to-slay/engine";
 import { cardName } from "../src/board/cards.js";
 import type { FakeConnection } from "./fake-connection.js";
 import { ALICE_HERO, BOT_HERO, CHALLENGE, MODIFIER, engine, newGame as game, play, step, update, type GameSetup } from "./real-game.js";
@@ -130,7 +130,7 @@ describe("response windows", () => {
     const connection = await inGame(rolling, "s2");
     const options = engine.getPlayerView(rolling, "s2").legalActions;
     connection.receive({ t: "respond", seat: "s2", actions: options });
-    expect(screen.getByRole("button", { name: "Play Modifier +4 (+4)" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Play Modifier \+4 \(\+4\) → \d+/ })).toBeEnabled();
     expect(screen.getByRole("group", { name: "Dice" })).toHaveTextContent(/Alice's roll: \d+/);
   });
 
@@ -146,6 +146,62 @@ describe("response windows", () => {
     connection.receive({ t: "passDevice", seat: "s2", name: "Bot 1" });
     expect(connection.takeSent()).toEqual([{ t: "confirmPassDevice", seat: "s2" }]);
     expect(screen.queryByText(/pass the device/i)).toBeNull();
+  });
+});
+
+describe("a Modifier Window", () => {
+  /** Sets the open Modifier Window's rolls to `totals`, in order, as if the dice had landed there. */
+  function atTotals(state: GameState, ...totals: number[]): GameState {
+    const window = state.stack.at(-1) as ModifierWindowFrame;
+    window.rolls.forEach((r, i) => (r.total = totals[i]!));
+    return state;
+  }
+
+  /** Renders `state` as Seat `seat`, asked for its response. */
+  async function asked(state: GameState, seat: string) {
+    const connection = await inGame(state, seat);
+    connection.receive({ t: "respond", seat, actions: engine.getPlayerView(state, seat).legalActions });
+  }
+
+  it("on a hero's roll, says who rolls for which hero, the total and what it needs, and what each Modifier leads to", async () => {
+    const rolling = play(newGame({ hands: { s1: [ALICE_HERO], s2: [MODIFIER] } }), { type: "PLAY_HERO", player: "s1", card: ALICE_HERO }, { type: "PASS", player: "s2" }, {
+      type: "ROLL_HERO_EFFECT",
+      player: "s1",
+      hero: ALICE_HERO,
+    });
+    await asked(atTotals(rolling, 5), "s2");
+    expect(screen.getByText("Alice rolls for Placeholder Bard 1's effect: 5, needs 8+")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play Modifier +4 (+4) → 9 (succeeds)" })).toBeEnabled();
+  });
+
+  it("on a monster attack, names the monster, the total and both its slay and defeat values", async () => {
+    const attacking = play(newGame({ hands: { s1: [], s2: [MODIFIER] } }), { type: "ATTACK_MONSTER", player: "s1", monster: "monster_02#0" });
+    await asked(atTotals(attacking, 2), "s2");
+    expect(screen.getByText("Alice attacks Placeholder Slime: 2, slays on 7+, defeated on 3 or less")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play Modifier +4 (+4) → 6 (no effect)" })).toBeEnabled();
+  });
+
+  /** Alice plays her hero, holding a Modifier; the bot Challenges it. */
+  const challenged = (config = {}) =>
+    play(
+      newGame({ hands: { s1: [ALICE_HERO, MODIFIER], s2: ["challenge_01#1"] }, config }),
+      { type: "PLAY_HERO", player: "s1", card: ALICE_HERO },
+      { type: "PLAY_CHALLENGE", player: "s2", card: "challenge_01#1" },
+    );
+
+  it("on a Challenge, names the challenged card, both totals and who is winning, and which roll each Modifier is on", async () => {
+    await asked(atTotals(challenged(), 7, 5), "s1");
+    expect(screen.getByText("Bot 1 challenges Alice's Placeholder Bard 1: 7 vs 5, Bot 1 is winning")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play Modifier +4 (+4) on Bot 1's roll → 11 (Challenge succeeds)" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Play Modifier +4 (+4) on Alice's roll → 9 (Challenge fails)" })).toBeEnabled();
+  });
+
+  it("gives a tied Challenge to the side challengeTieWinner names", async () => {
+    await asked(atTotals(challenged({ challengeTieWinner: "challenger" }), 6, 6), "s1");
+    expect(screen.getByText("Bot 1 challenges Alice's Placeholder Bard 1: 6 vs 6, Bot 1 is winning")).toBeInTheDocument();
+    cleanup();
+    await asked(atTotals(challenged({ challengeTieWinner: "challenged" }), 6, 6), "s1");
+    expect(screen.getByText("Bot 1 challenges Alice's Placeholder Bard 1: 6 vs 6, Alice is winning")).toBeInTheDocument();
   });
 });
 

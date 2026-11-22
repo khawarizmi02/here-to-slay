@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ConfigPatch } from "@here-to-slay/protocol";
 import { loadCardDefs } from "@here-to-slay/cards";
-import { createRoomEngine, type GameState } from "../src/index.js";
+import { createRoomEngine, rollOutcomes, type GameState, type WindowRoll } from "../src/index.js";
 import { smallSet } from "./cards.js";
 import { act, awaiting, dice, engineWith, give, hand, inParty, passAll, passWindow, start, type Engine } from "./scenario.js";
 
@@ -40,7 +40,7 @@ describe("a Modifier Window", () => {
     expect(e.getPlayerView(r.state, "p2").responseWindow).toEqual({
       kind: "modifier",
       awaiting: ["p1", "p2", "p3"],
-      rolls: [{ roll: "r1", player: "p1", total: 6, modifiers: [], rollKind: "heroEffect", needs: 7 }],
+      rolls: [{ roll: "r1", player: "p1", total: 6, modifiers: [], rollKind: "heroEffect", hero: BARD, needs: 7 }],
     });
     for (const p of ["p1", "p2", "p3"]) expect(e.getLegalActions(r.state, p)).toEqual([{ type: "PASS", player: p }]);
     expect(e.applyAction(r.state, { type: "END_TURN", player: "p1" }).ok).toBe(false);
@@ -143,8 +143,8 @@ describe("a Modifier Window in a Challenge", () => {
       kind: "modifier",
       awaiting: ["p3", "p1", "p2"],
       rolls: [
-        { roll: "r1", player: "p3", total: 7, modifiers: [], rollKind: "challenge", side: "challenger" },
-        { roll: "r2", player: "p1", total: 6, modifiers: [], rollKind: "challenge", side: "defender" },
+        { roll: "r1", player: "p3", total: 7, modifiers: [], rollKind: "challenge", side: "challenger", target: BARD },
+        { roll: "r2", player: "p1", total: 6, modifiers: [], rollKind: "challenge", side: "defender", target: BARD },
       ],
     });
     expect(e.getLegalActions(r.state, "p2")).toEqual([
@@ -236,5 +236,47 @@ describe("a nested roll", () => {
     const none = passAll(e, act(e, dice(alone, 4, 3), { type: "ROLL_HERO_EFFECT", player: "p1", hero: "hero_nester#0" }).state);
     expect(none.events.map((ev) => ev.type)).toEqual(["ROLL_RESOLVED"]);
     expect(none.state.phase).toEqual({ kind: "action" });
+  });
+});
+
+describe("rollOutcomes", () => {
+  const TIE_TO_CHALLENGER = { challengeTieWinner: "challenger" } as const;
+  const hero = (total: number): WindowRoll => ({ roll: "r1", player: "p1", total, modifiers: [], rollKind: "heroEffect", hero: BARD, needs: 7 });
+  const attack = (total: number): WindowRoll => ({
+    roll: "r1",
+    player: "p1",
+    total,
+    modifiers: [],
+    rollKind: "monsterAttack",
+    monster: { id: "monster_1#0", def: "monster_1" },
+    needs: 8,
+    defeatAt: 4,
+  });
+  const duel = (challenger: number, defender: number): WindowRoll[] => [
+    { roll: "r1", player: "p3", total: challenger, modifiers: [], rollKind: "challenge", side: "challenger", target: BARD },
+    { roll: "r2", player: "p1", total: defender, modifiers: [], rollKind: "challenge", side: "defender", target: BARD },
+  ];
+
+  it("says a hero roll succeeds at or above what it needs, and fails below it", () => {
+    expect(rollOutcomes([hero(7)], TIE_TO_CHALLENGER)).toEqual(["succeeds"]);
+    expect(rollOutcomes([hero(9)], TIE_TO_CHALLENGER)).toEqual(["succeeds"]);
+    expect(rollOutcomes([hero(6)], TIE_TO_CHALLENGER)).toEqual(["fails"]);
+  });
+
+  it("says a monster attack slays at or above the slay value, is defeated at or below the defeat value, and does nothing between", () => {
+    expect(rollOutcomes([attack(8)], TIE_TO_CHALLENGER)).toEqual(["slain"]);
+    expect(rollOutcomes([attack(7)], TIE_TO_CHALLENGER)).toEqual(["nothing"]);
+    expect(rollOutcomes([attack(5)], TIE_TO_CHALLENGER)).toEqual(["nothing"]);
+    expect(rollOutcomes([attack(4)], TIE_TO_CHALLENGER)).toEqual(["defeated"]);
+  });
+
+  it("gives both rolls of a Challenge whether it succeeds at their totals", () => {
+    expect(rollOutcomes(duel(8, 6), TIE_TO_CHALLENGER)).toEqual(["challengeSucceeds", "challengeSucceeds"]);
+    expect(rollOutcomes(duel(6, 8), TIE_TO_CHALLENGER)).toEqual(["challengeFails", "challengeFails"]);
+  });
+
+  it("lets a tied Challenge succeed only when challengeTieWinner gives ties to the challenger", () => {
+    expect(rollOutcomes(duel(7, 7), { challengeTieWinner: "challenger" })).toEqual(["challengeSucceeds", "challengeSucceeds"]);
+    expect(rollOutcomes(duel(7, 7), { challengeTieWinner: "challenged" })).toEqual(["challengeFails", "challengeFails"]);
   });
 });
