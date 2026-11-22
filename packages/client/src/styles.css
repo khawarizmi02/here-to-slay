@@ -266,6 +266,31 @@ main.board {
   z-index: 2;
 }
 
+/*
+ * Party Leaders and Monsters are taller cards (about 7:12). In the playing
+ * card's shape their art would be cropped top and bottom, losing the text
+ * printed there.
+ */
+.card-leader:has(> .card-art),
+.card-monster:has(> .card-art) {
+  aspect-ratio: 7 / 12;
+}
+
+/* A Monster's requirement, penalty and reward are printed at the bottom, so its Attack control sits at the top. */
+.card-monster:has(> .card-art) {
+  justify-content: flex-start;
+}
+
+.card-monster > .card-art ~ * {
+  order: -1;
+}
+
+/* A control over art, and the reason it is disabled, stay readable. */
+.card-art ~ .control {
+  border-radius: 4px;
+  background: color-mix(in srgb, Canvas 85%, transparent);
+}
+
 .card:hover,
 .card:focus-within {
   z-index: 1;
@@ -300,6 +325,12 @@ main.board {
   font-size: 1rem;
   pointer-events: none;
   box-shadow: 0 8px 32px rgb(0 0 0 / 0.4);
+}
+
+/* A zoomed tall card is wider, so the small print at its bottom can be read, but never taller than the screen. */
+.card.card-zoom.card-leader:has(> .card-art),
+.card.card-zoom.card-monster:has(> .card-art) {
+  width: min(400px, calc(100vw - 32px), calc((100vh - 32px) * 7 / 12));
 }
 
 .card-zoom .card-name {
