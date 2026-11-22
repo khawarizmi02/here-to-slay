@@ -4,6 +4,10 @@ A digital version of the *Here to Slay* card game for friends playing together, 
 
 ## Game
 
+**Card Set**:
+The cards a game is played with: either the placeholder cards that come with the game, or the Host's own local cards, kept privately on their machine. Every Seat in a Room sees the Host's Card Set.
+_Avoid_: Deck (the draw pile), card data
+
 **Decision**:
 One pick that the game asks one player to make, such as a card to discard or a hero to steal. Every Decision is exactly one pick. Choosing several cards is a chain of Decisions, one per card. A "you may" Decision includes an explicit Decline option.
 _Avoid_: Prompt, multi-select, choice (a `choice` is an effect op)
