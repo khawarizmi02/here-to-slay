@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState, type ReactNode } from "react";
 import { Countdown } from "../shell/Countdown.js";
 import type { GameProps } from "../shell/game.js";
+import { CardArt } from "./art.js";
 import { cardDef, cardName, cardSubtitle } from "./cards.js";
 import { logLine, nameIn, whoIn } from "./log.js";
 import { RulesReference } from "./rules.js";
@@ -133,6 +134,7 @@ export function CardView({ card, children, className }: { card: Card; children?:
       <strong className="card-name">{cardName(card)}</strong>
       {def && <span className="card-subtitle">{cardSubtitle(def)}</span>}
       {def?.text && <span className="card-text">{def.text}</span>}
+      <CardArt card={card} />
       {children}
     </div>
   );

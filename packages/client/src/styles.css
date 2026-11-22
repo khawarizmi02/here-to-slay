@@ -235,6 +235,37 @@ main.board {
   transition: transform 0.1s;
 }
 
+/*
+ * Local card art (§12.4): an image over the whole HTML card, which stays
+ * underneath for screen readers. The card takes a playing card's shape, and
+ * what follows the art (a Play button, an equipped item) sits on top of it,
+ * at the bottom.
+ */
+.card {
+  position: relative;
+}
+
+.card:has(> .card-art) {
+  aspect-ratio: 63 / 88;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.card-art {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.card-art ~ * {
+  position: relative;
+  z-index: 2;
+}
+
 .card:hover,
 .card:focus-within {
   z-index: 1;

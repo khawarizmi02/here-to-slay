@@ -1,17 +1,14 @@
 import { chooseCardSet, type CardDef, type CardSet, type HeroClass } from "@here-to-slay/cards";
 import { describeRequirement, type CardView } from "@here-to-slay/engine";
+import { LOCAL_ART, LOCAL_CARD_FILES } from "./local-files.js";
 
 /**
  * The card set the Room plays with: the private local set in
  * `packages/cards/local/` when its files exist, the placeholder set
  * otherwise. A broken local set throws here, at startup, naming the card and
- * the field. The glob finds nothing in a fresh clone. The unit tests (Vite's
- * `test` mode) always use the placeholder set, so they pass with or without
- * a local set.
+ * the field.
  */
-export const CARD_SET: CardSet = chooseCardSet(
-  import.meta.env.MODE === "test" ? {} : import.meta.glob("../../../cards/local/*.json", { eager: true, import: "default" }),
-);
+export const CARD_SET: CardSet = chooseCardSet(LOCAL_CARD_FILES);
 
 /**
  * The cards of that set. The board looks up names and text here; it never
@@ -24,6 +21,21 @@ const BY_ID: ReadonlyMap<string, CardDef> = new Map(CARD_DEFS.map((d) => [d.id, 
 
 export function cardDef(card: CardView | string): CardDef | undefined {
   return BY_ID.get(typeof card === "string" ? card : card.def);
+}
+
+/** Each local art file's URL, by file name. */
+const ART_BY_FILE: ReadonlyMap<string, string> = new Map(
+  Object.entries(LOCAL_ART).map(([path, url]) => [path.slice(path.lastIndexOf("/") + 1), url]),
+);
+
+/**
+ * The URL of a card's art (§12.4): the file its `art` field names in
+ * `packages/cards/local/art/`. None when the card names no art or its file
+ * isn't there, and the card is drawn with HTML alone.
+ */
+export function cardArt(card: CardView | string): string | undefined {
+  const art = cardDef(card)?.art;
+  return art === undefined ? undefined : ART_BY_FILE.get(art);
 }
 
 export function cardName(card: CardView | string): string {
