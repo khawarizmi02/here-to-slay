@@ -2,6 +2,7 @@ import { DEFAULT_CONFIG, type GameEvent, type PlayerView, type RuleConfig } from
 import { useState } from "react";
 import type { GameLayer, RulesProps } from "../shell/game.js";
 import { Board } from "./Board.js";
+import { CARD_SET } from "./cards.js";
 import { RulesReference } from "./rules.js";
 
 const RESPONSES = new Set(["PASS", "PLAY_CHALLENGE", "PLAY_MODIFIER"]);
@@ -9,6 +10,7 @@ const RESPONSES = new Set(["PASS", "PLAY_CHALLENGE", "PLAY_MODIFIER"]);
 /** The rules engine's layer: its board, its rules form, and whom it waits on. */
 export const realGame: GameLayer = {
   Board,
+  cardSetLabel: CARD_SET.label,
   Rules,
   RulesReference,
   seatToAct(payload) {

@@ -41,6 +41,12 @@ describe("the lobby", () => {
     expect(connection.takeSent()).toEqual([{ t: "addBot", difficulty: "easy" }, { t: "startGame" }]);
   });
 
+  it("says which card set is in use", async () => {
+    await renderInLobby();
+    // The unit tests always play with the placeholder set.
+    expect(screen.getByText("Placeholder cards")).toBeInTheDocument();
+  });
+
   it("shows no Room Code for a game on this device", async () => {
     await renderInLobby();
     expect(screen.queryByText(/ABCDE/)).toBeNull();

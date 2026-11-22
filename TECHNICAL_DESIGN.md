@@ -548,6 +548,7 @@ Note: a `discard` whose `chosenBy` is not the discarding player takes each card 
 ### 5.7 Card loading
 - `packages/cards/src/schema.ts` defines Zod schemas for every card type.
 - On startup, the loader validates all JSON files and **fails loudly** on any error.
+- The client plays with the private local set in `packages/cards/local/` when its seven files exist, and the placeholder set in `packages/cards/data/` otherwise (`chooseCardSet`). The local folder is gitignored apart from its README, so real card data is never committed. The lobby names the set in use ("Local cards" or "Placeholder cards"); saves and replays made with one set won't load with the other (ADR-0003). (#85)
 - `buildDeck(defs)` expands `copies` into instances with unique `CardInstanceId`s.
 
 ---
