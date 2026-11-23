@@ -438,6 +438,7 @@ export type HookPoint =
   | "beforeRoll" | "afterRoll"
   | "onCardPlayed" | "onHeroEnterParty" | "onHeroLeaveParty"
   | "onChallenged" | "onMonsterSlain"
+  | "onCardDrawn" | "onModifierPlayed" | "beforeHeroDestroyed"
   | "modifyRollTotal" | "modifyActionCost" | "modifyHandLimit";
 
 export interface PassiveAbility {
@@ -453,13 +454,31 @@ The engine calls `runHooks(state, hookPoint, context)` at each hook point and ga
 
 - An item's passive applies to rolls only when the hero wearing it is the one rolling. A monster attack is the whole party's roll, so every item in the attacker's party counts for it. At other hooks it applies to the whole party of the hero's owner, including a Cursed item on an opponent's hero.
 - A trigger passive runs as an effect on the stack, controlled by the passive's owner. `beforeRoll` runs before the dice, `afterRoll` once the roll settles: after its Modifier Window closes (before a successful hero's effect), or for a Challenge roll right after the dice, `onHeroEnterParty` and `onHeroLeaveParty` as a hero joins or leaves a party, and `onCardPlayed` once the played card has resolved. `onTurnStart` and `onTurnEnd` passives run on the stack too, so they may ask Decisions; the rest of the turn's start or end waits for them.
+- `onCardDrawn` runs for the drawer once per card drawn, by any draw (the action, an effect, a Discard and Redraw, the start-of-turn draw), in the order drawn, after the whole draw.
+- `onModifierPlayed` runs for **every** player, in turn order from whoever played the Modifier, after it is added to the roll. The Modifier Window waits below them and reopens to everyone once they are done.
+- `beforeHeroDestroyed` runs once a `destroy` has picked its hero and before the hero leaves: the destroyer's passives first, then the owner's. The hero is destroyed only if it is still in the party it was picked from, so a passive that moves it (a steal instead) saves it.
+
+**Handlers.** A passive with a `handler` instead of an `effect` runs that handler at its trigger hook, as a custom effect on the stack controlled by the passive's owner, so it may ask Decisions like any effect. The handler reads what the hook knew from its frame's `hook` context:
+
+| Hook | Context |
+|---|---|
+| `beforeRoll`, `afterRoll` | `rollKind`; for a hero roll `heroClass` and `hero`; `afterRoll` on a hero roll adds `succeeded` |
+| `onCardPlayed` | `action` |
+| `onChallenged` | `action`, and `by`: the challenger |
+| `onHeroEnterParty` | `heroClass` |
+| `onHeroLeaveParty` | `heroClass`, `target` (the hero), `owner` (whose party it left), `how`: `"destroyed"`, `"sacrificed"` or `"stolen"` |
+| `onCardDrawn` | `card`: the card drawn |
+| `onModifierPlayed` | `card` (the Modifier), `by` (who played it), `roll`, `roller` (whose roll it is on) |
+| `beforeHeroDestroyed` | `target` (the hero), `owner`, `by` (the destroyer) |
+
+The engine's handlers are listed in `packages/engine/src/handlers.ts`. Card loading fails loudly (a `CardLoadError` naming the card and field) when a passive names a handler the engine doesn't know (§5.7). Handlers the local card data names before they are built are listed as pending: they load, but throw if they ever run, so those cards keep them on a `modifyRollTotal` passive with no value, which adds nothing, until their issue lands. A handler on a "modify" hook adds nothing. A passive that limits what may be targeted or Challenged (a hero that can't be destroyed, an item that can't be Challenged) is a check where the target is picked or the Challenge Window opens, not a trigger hook; its issue adds that check.
 
 ### 5.5 Extensibility for expansions
 - New classes: extend `HeroClass` and update `classesToWin`.
 - New card types: add to `CardType`, add a Zod schema, and add an action if the card is played differently.
 - New mechanics: add hook points or effect ops. Avoid special-case `if (card.id === ...)` code.
 
-Custom handlers the engine knows (`{ op: "custom", handler }`; an unknown handler does nothing):
+Custom handlers the engine knows (`{ op: "custom", handler }`; an unknown handler does nothing). Passive handlers (§5.4) are listed apart, in `handlers.ts`:
 
 | Handler | Effect |
 |---|---|
@@ -547,7 +566,7 @@ Note: a `discard` whose `chosenBy` is not the discarding player takes each card 
 
 ### 5.7 Card loading
 - `packages/cards/src/schema.ts` defines Zod schemas for every card type.
-- On startup, the loader validates all JSON files and **fails loudly** on any error.
+- On startup, the loader validates all JSON files and **fails loudly** on any error. `createRoomEngine` then checks every passive's `handler` names one the engine knows (§5.4), failing the same way.
 - The client plays with the private local set in `packages/cards/local/` when its seven files exist, and the placeholder set in `packages/cards/data/` otherwise (`chooseCardSet`). The local folder is gitignored apart from its README, so real card data is never committed. The lobby names the set in use ("Local cards" or "Placeholder cards"); saves and replays made with one set won't load with the other (ADR-0003). (#85)
 - `buildDeck(defs)` expands `copies` into instances with unique `CardInstanceId`s.
 

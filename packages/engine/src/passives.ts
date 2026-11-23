@@ -1,15 +1,8 @@
-import type { CostedAction, HeroClass, PassiveAbility, RollKind } from "@here-to-slay/cards";
+import type { CostedAction, PassiveAbility } from "@here-to-slay/cards";
 import { playerState } from "./players.js";
-import type { CardIndex, CardInstanceId, GameState, PlayerId } from "./types.js";
+import type { CardIndex, CardInstanceId, GameState, HookContext, PlayerId } from "./types.js";
 
-/** What a hook point knows when it runs; a passive's condition must match every field it names. */
-export interface HookContext {
-  action?: CostedAction;
-  rollKind?: RollKind;
-  heroClass?: HeroClass;
-  /** The hero a roll is for. An item's passive applies only to its own hero's rolls. */
-  hero?: CardInstanceId;
-}
+export type { HookContext };
 
 /** A passive, with the card that grants it. */
 export interface SourcedPassive {

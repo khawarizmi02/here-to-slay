@@ -1,4 +1,4 @@
-import type { CardDef, CardDefId, CostedAction, Effect } from "@here-to-slay/cards";
+import type { CardDef, CardDefId, CostedAction, Effect, HeroClass, RollKind } from "@here-to-slay/cards";
 import type { Action, CardInstanceId, PlayerId } from "@here-to-slay/protocol";
 import type { RuleConfig } from "./config.js";
 import type { RngState } from "./rng.js";
@@ -76,6 +76,33 @@ export interface PendingDecision {
 }
 
 /**
+ * What a hook point knows when it runs (TECHNICAL_DESIGN.md §5.4). A
+ * passive's condition must match every field it names; a passive's handler
+ * reads the rest from its frame.
+ */
+export interface HookContext {
+  action?: CostedAction;
+  rollKind?: RollKind;
+  heroClass?: HeroClass;
+  /** The hero a roll is for. An item's passive applies only to its own hero's rolls. */
+  hero?: CardInstanceId;
+  /** onCardDrawn: the card drawn. onModifierPlayed: the Modifier card. */
+  card?: CardInstanceId;
+  /** onModifierPlayed: who played the Modifier. onChallenged: the challenger. beforeHeroDestroyed: the destroyer. */
+  by?: PlayerId;
+  /** onModifierPlayed: the roll the Modifier is on, and whose roll it is. */
+  roll?: string;
+  roller?: PlayerId;
+  /** beforeHeroDestroyed, onHeroLeaveParty: the hero, and the player whose party it is in, or was. */
+  target?: CardInstanceId;
+  owner?: PlayerId;
+  /** onHeroLeaveParty: how the hero left. */
+  how?: "destroyed" | "sacrificed" | "stolen";
+  /** afterRoll on a hero roll: whether it succeeded. */
+  succeeded?: boolean;
+}
+
+/**
  * The answers a stack frame has collected, by name. A null answer means the
  * Decision was skipped for having no option.
  */
@@ -100,6 +127,8 @@ export interface EffectFrame {
   awaiting: string | null;
   /** The card that caused the effect. */
   source: CardInstanceId;
+  /** For a passive's handler: what its hook point knew when it fired. */
+  hook?: HookContext;
 }
 
 /** A "you may roll for this hero's effect" offer, after the hero is played (`freeRollOnHeroPlay`). */

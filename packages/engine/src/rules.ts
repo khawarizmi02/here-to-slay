@@ -96,7 +96,8 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
   if (action.type !== "END_TURN") state.actionPoints -= actionCost(defs, state, action.player, action.type);
   switch (action.type) {
     case "DRAW_CARD":
-      drawCards(state, action.player, 1, events);
+      drawCards(defs, state, action.player, 1, events);
+      runStack(defs, state, events);
       break;
     case "PLAY_HERO":
       playCard(defs, state, action.player, action.card, "PLAY_HERO", null, events);
@@ -114,7 +115,8 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
       attackMonster(defs, state, action.player, action.monster, events);
       break;
     case "DISCARD_AND_REDRAW":
-      discardAndRedraw(state, action.player, events);
+      discardAndRedraw(defs, state, action.player, events);
+      runStack(defs, state, events);
       break;
     case "END_TURN":
       endTurn(defs, state, events);
@@ -126,7 +128,7 @@ function turnAction(defs: CardIndex, state: GameState, action: TurnAction, event
 function response(defs: CardIndex, state: GameState, action: ResponseAction, events: GameEvent[]): void {
   if (action.type === "PASS") pass(state, action.player);
   else if (action.type === "PLAY_CHALLENGE") playChallenge(defs, state, action.player, action.card, events);
-  else playModifier(state, action.player, action.card, action.value, action.roll!, events);
+  else playModifier(defs, state, action.player, action.card, action.value, action.roll!, events);
   runStack(defs, state, events);
 }
 

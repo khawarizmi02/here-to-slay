@@ -145,7 +145,7 @@ export const RequirementSchema: z.ZodType<Requirement> = z.lazy(() =>
 // ---------------------------------------------------------------------------
 // Passive abilities (§5.4)
 
-/** Hook points that run an effect when they fire. */
+/** Hook points that run an effect, or a handler, when they fire (TECHNICAL_DESIGN.md §5.4). */
 export const TRIGGER_HOOKS = [
   "onTurnStart",
   "onTurnEnd",
@@ -156,6 +156,9 @@ export const TRIGGER_HOOKS = [
   "onHeroLeaveParty",
   "onChallenged",
   "onMonsterSlain",
+  "onCardDrawn",
+  "onModifierPlayed",
+  "beforeHeroDestroyed",
 ] as const;
 /** Hook points that change a number by `value`. */
 export const MODIFY_HOOKS = ["modifyRollTotal", "modifyActionCost", "modifyHandLimit"] as const;

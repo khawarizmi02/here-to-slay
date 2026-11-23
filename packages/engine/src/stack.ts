@@ -1,6 +1,7 @@
 import { challengeDuelStep, challengeRolled } from "./challenges.js";
 import type { Effect, HeroFilter, PassiveAbility, PlayerFilter, PlayerRef } from "@here-to-slay/cards";
 import { decisionOptions, openDecision, type DecisionResolver } from "./decisions.js";
+import { passiveHandler } from "./handlers.js";
 import { heroDef, rollableHeroes, startHeroRoll } from "./heroes.js";
 import { closeModifierWindow, pushModifierWindow } from "./modifiers.js";
 import { monsterAttackOutcome, monsterDef, pushPenalty, slayMonster } from "./monsters.js";
@@ -83,7 +84,8 @@ function step(defs: CardIndex, state: GameState, events: GameEvent[]): void {
 
 /**
  * Pushes `player`'s passives at a trigger hook (§5.4), each run as an effect
- * whose controller is `player` and whose source is the card granting it.
+ * whose controller is `player` and whose source is the card granting it. A
+ * passive with a handler runs it as a custom effect that keeps `ctx` as its `hook`.
  * The first passive ends up on top, so it runs first.
  */
 export function pushTriggers(
@@ -95,9 +97,8 @@ export function pushTriggers(
 ): void {
   const found = passiveSourcesAt(defs, state, player, hook, ctx);
   for (const { passive, source } of found.reverse()) {
-    // Custom handlers arrive with the cards that need them.
-    if (passive.effect === undefined) throw new Error(`A ${hook} passive needs an effect for now, not ${JSON.stringify(passive)}`);
-    state.stack.push(effectFrame(passive.effect, player, player, source));
+    if (passive.handler !== undefined) state.stack.push({ ...effectFrame({ op: "custom", handler: passive.handler }, player, player, source), hook: ctx });
+    else if (passive.effect !== undefined) state.stack.push(effectFrame(passive.effect, player, player, source));
   }
 }
 
@@ -205,7 +206,10 @@ function roll(defs: CardIndex, state: GameState, frame: RollFrame, events: GameE
     const succeeded = total >= def.rollRequirement;
     events.push({ ...settled, rollKind: "heroEffect", hero: { id: frame.hero, def: def.id }, succeeded });
     if (succeeded) state.stack.push(effectFrame(def.effect, frame.roller, frame.roller, frame.hero));
-  } else if (frame.rollKind === "monsterAttack") {
+    pushTriggers(defs, state, frame.roller, "afterRoll", { ...ctx, succeeded });
+    return;
+  }
+  if (frame.rollKind === "monsterAttack") {
     const def = monsterDef(defs, state, frame.monster)!;
     const outcome = monsterAttackOutcome(def, total);
     events.push({ ...settled, rollKind: "monsterAttack", monster: { id: frame.monster, def: def.id }, outcome });
@@ -280,7 +284,7 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
       const who = playerRef(defs, state, frame, "who", effect.who, `Choose a player to draw ${cards(effect.amount)}`, events);
       if (who === undefined) return;
       state.stack.pop();
-      if (who !== null) drawCards(state, who, effect.amount, events);
+      if (who !== null) drawCards(defs, state, who, effect.amount, events);
       return;
     }
     case "discard":
@@ -302,8 +306,20 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
       const candidates = heroesMatching(defs, state, frame.self, effect.target);
       const picked = pickHero(defs, state, frame, "hero", chooserOf(frame, effect.target), candidates, "Choose a hero to destroy", events);
       if (picked === undefined) return;
+      if (picked !== null && !("pickedFrom" in frame.bindings)) {
+        // Whose party the hero is picked from; the destroyer's beforeHeroDestroyed passives run first, then the owner's.
+        frame.bindings.pickedFrom = picked.owner;
+        const ctx = { target: picked.hero, owner: picked.owner, by: frame.self };
+        if (picked.owner !== frame.self) pushTriggers(defs, state, picked.owner, "beforeHeroDestroyed", ctx);
+        pushTriggers(defs, state, frame.self, "beforeHeroDestroyed", ctx);
+        return;
+      }
       state.stack.pop();
-      if (picked !== null) discardHero(defs, state, "HERO_DESTROYED", frame.self, picked.owner, picked.hero, events);
+      // Only if it is still in the party it was picked from: a passive may have taken it.
+      const owner = frame.bindings.pickedFrom;
+      if (picked !== null && owner !== undefined && owner !== null && playerState(state, owner).party.some((h) => h.instanceId === picked.hero)) {
+        discardHero(defs, state, "HERO_DESTROYED", frame.self, owner, picked.hero, events);
+      }
       return;
     }
     case "sacrifice":
@@ -312,7 +328,9 @@ function effectStep(defs: CardIndex, state: GameState, frame: EffectFrame, event
       return pullStep(defs, state, frame, effect, events);
     case "custom":
       if (effect.handler === "rollHero") return rollHeroStep(defs, state, frame, events);
-      // Other handlers arrive with the cards that need them.
+      // A passive's handler, checked as the cards loaded.
+      if (frame.hook !== undefined) return passiveHandler(effect.handler)(defs, state, frame, events);
+      // Any other handler the engine doesn't know does nothing (§5.5).
       state.stack.pop();
       return;
     default:

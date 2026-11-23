@@ -1,4 +1,5 @@
 import { fromPlayer, playerState } from "./players.js";
+import { pushTriggers } from "./stack.js";
 import type { RuleConfig } from "./config.js";
 import type { Action, CardIndex, CardInstanceId, GameEvent, GameState, ModifierWindowFrame, PlayerId, WindowRoll } from "./types.js";
 
@@ -42,8 +43,10 @@ export function withRoll(state: GameState, action: Action): Action {
 /**
  * PLAY_MODIFIER (§3.6): costs no AP. The card goes to the discard pile, its
  * chosen value is added to the roll, and the window reopens to everyone.
+ * Every player's onModifierPlayed passives run, in turn order from `player`,
+ * while the window waits below them.
  */
-export function playModifier(state: GameState, player: PlayerId, card: CardInstanceId, value: number, rollId: string, events: GameEvent[]): void {
+export function playModifier(defs: CardIndex, state: GameState, player: PlayerId, card: CardInstanceId, value: number, rollId: string, events: GameEvent[]): void {
   const frame = state.stack.at(-1) as ModifierWindowFrame;
   const roll = frame.rolls.find((r) => r.roll === rollId)!;
   const p = playerState(state, player);
@@ -53,6 +56,8 @@ export function playModifier(state: GameState, player: PlayerId, card: CardInsta
   roll.total += value;
   frame.passed = [];
   events.push({ type: "MODIFIER_PLAYED", player, card: { id: card, def: state.cards[card]! }, roll: rollId, value, total: roll.total });
+  const ctx = { card, by: player, roll: rollId, roller: roll.player };
+  for (const id of fromPlayer(state, player).reverse()) pushTriggers(defs, state, id, "onModifierPlayed", ctx);
 }
 
 /** Closes a window everyone has passed: it pops, and the roll or Challenge duel below it takes the final totals. */

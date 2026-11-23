@@ -92,9 +92,11 @@ describe("the placeholder play set", () => {
     expect([...used].sort()).toEqual([...M2_M3_OPS].sort());
   });
 
-  it("uses every passive hook point", () => {
+  it("uses every passive hook point but those added for passive handlers", () => {
+    // Added for real cards whose passives need a handler (#108); no placeholder card has one.
+    const forHandlers = ["onCardDrawn", "onModifierPlayed", "beforeHeroDestroyed"];
     const used = new Set(defs.flatMap(passivesOf).map((passive) => passive.hook));
-    expect([...used].sort()).toEqual([...HOOK_POINTS].sort());
+    expect([...used].sort()).toEqual(HOOK_POINTS.filter((hook) => !forHandlers.includes(hook)).sort());
   });
 
   it("uses every monster requirement kind", () => {

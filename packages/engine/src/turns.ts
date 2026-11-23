@@ -3,7 +3,7 @@ import { fromPlayer, playerState } from "./players.js";
 import { handLimit } from "./passives.js";
 import { shuffle } from "./rng.js";
 import { pushTriggers, runStack } from "./stack.js";
-import type { CardIndex, GameEvent, GameState, PlayerId, TurnFrame } from "./types.js";
+import type { CardIndex, CardInstanceId, GameEvent, GameState, PlayerId, TurnFrame } from "./types.js";
 
 /** Cards a Discard and Redraw draws (§3.5). */
 export const REDRAW_COUNT = 5;
@@ -13,16 +13,21 @@ export const REDRAW_COUNT = 5;
  * hand, announcing each to the drawer only. When the deck runs out, even in
  * the middle, the discard pile is shuffled to make a new one
  * (`reshuffleDiscardWhenDeckEmpty`); with nothing left to draw, it stops short.
+ * The drawer's onCardDrawn passives go on the stack, once per card, the first
+ * card's on top.
  */
-export function drawCards(state: GameState, player: PlayerId, count: number, events: GameEvent[]): void {
+export function drawCards(defs: CardIndex, state: GameState, player: PlayerId, count: number, events: GameEvent[]): void {
   const p = playerState(state, player);
+  const drawn: CardInstanceId[] = [];
   for (let i = 0; i < count; i++) {
     if (state.mainDeck.length === 0) reshuffleDiscardPile(state, events);
     const card = state.mainDeck.shift();
-    if (card === undefined) return;
+    if (card === undefined) break;
     p.hand.push(card);
+    drawn.push(card);
     events.push({ type: "CARD_DRAWN", player, card: { id: card, def: state.cards[card]! } });
   }
+  for (const card of drawn.reverse()) pushTriggers(defs, state, player, "onCardDrawn", { card });
 }
 
 /** Whether a draw would get a card: the deck has one, or the discard pile can be reshuffled into it. */
@@ -38,9 +43,9 @@ function reshuffleDiscardPile(state: GameState, events: GameEvent[]): void {
 }
 
 /** Discard and Redraw (§3.5): the whole hand goes face up to the discard pile, then the player draws 5. */
-export function discardAndRedraw(state: GameState, player: PlayerId, events: GameEvent[]): void {
+export function discardAndRedraw(defs: CardIndex, state: GameState, player: PlayerId, events: GameEvent[]): void {
   for (const card of [...playerState(state, player).hand]) discardFromHand(state, player, card, events);
-  drawCards(state, player, REDRAW_COUNT, events);
+  drawCards(defs, state, player, REDRAW_COUNT, events);
 }
 
 /**
@@ -61,8 +66,8 @@ export function startTurn(defs: CardIndex, state: GameState, player: PlayerId, e
 }
 
 /** The free draw at the start of a turn, once the start-of-turn passives are done. */
-function startDraw(state: GameState, events: GameEvent[]): void {
-  if (state.config.drawAtStartOfTurn) drawCards(state, state.activePlayer, 1, events);
+function startDraw(defs: CardIndex, state: GameState, events: GameEvent[]): void {
+  if (state.config.drawAtStartOfTurn) drawCards(defs, state, state.activePlayer, 1, events);
 }
 
 /**
@@ -87,7 +92,7 @@ export function endTurn(defs: CardIndex, state: GameState, events: GameEvent[]):
 /** Steps a TurnFrame: the rest of the turn's start or end. */
 export function turnStep(defs: CardIndex, state: GameState, frame: TurnFrame, events: GameEvent[]): void {
   state.stack.pop();
-  if (frame.step === "startDraw") return startDraw(state, events);
+  if (frame.step === "startDraw") return startDraw(defs, state, events);
   state.phase = { kind: "turnEnd", discarded: 0 };
   continueTurnEnd(defs, state, events);
 }

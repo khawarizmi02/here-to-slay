@@ -62,7 +62,7 @@ export function playChallenge(defs: CardIndex, state: GameState, player: PlayerI
     defenderTotal: null,
     modified: false,
   });
-  pushTriggers(defs, state, window.player, "onChallenged", { action: play.action });
+  pushTriggers(defs, state, window.player, "onChallenged", { action: play.action, by: player });
 }
 
 /** Opens a Challenge Window on `play`, unless `maxChallengesPerPlay` allows no more Challenges. */

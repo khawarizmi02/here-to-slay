@@ -1,6 +1,7 @@
 import type { CardDef } from "@here-to-slay/cards";
 import type { Action, ConfigPatch, PlayerId } from "@here-to-slay/protocol";
 import { clone } from "./clone.js";
+import { checkPassiveHandlers } from "./handlers.js";
 import { hash128 } from "./rng.js";
 import { applyAction, getLegalActions, isDiscardDecision } from "./rules.js";
 import { createGame } from "./setup.js";
@@ -27,6 +28,7 @@ export interface BoundEngine {
 }
 
 export function createRoomEngine(cardDefs: readonly CardDef[]): BoundEngine {
+  checkPassiveHandlers(cardDefs);
   const defs = clone([...cardDefs]);
   const index: CardIndex = new Map(defs.map((d) => [d.id, d]));
   return {

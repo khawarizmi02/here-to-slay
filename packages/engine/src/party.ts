@@ -45,7 +45,7 @@ export function stealHero(defs: CardIndex, state: GameState, to: PlayerId, from:
   events.push({ type: "HERO_STOLEN", player: to, from, hero: view(state, hero), item: moved.equippedItem === null ? null : view(state, moved.equippedItem) });
   if (item !== null && moved.equippedItem === null) events.push({ type: "ITEM_DISCARDED", player: from, item: view(state, item) });
   pushTriggers(defs, state, to, "onHeroEnterParty", ctx);
-  pushTriggers(defs, state, from, "onHeroLeaveParty", ctx);
+  pushTriggers(defs, state, from, "onHeroLeaveParty", { ...ctx, target: hero, owner: from, how: "stolen" });
 }
 
 /**
@@ -62,7 +62,7 @@ export function discardHero(
   hero: CardInstanceId,
   events: GameEvent[],
 ): void {
-  const ctx = { heroClass: heroClass(defs, state, hero) };
+  const ctx = { heroClass: heroClass(defs, state, hero), target: hero, owner, how: how === "HERO_DESTROYED" ? ("destroyed" as const) : ("sacrificed" as const) };
   const gone = removeHero(state, owner, hero);
   state.discardPile.push(hero);
   if (gone.equippedItem !== null) state.discardPile.push(gone.equippedItem);
